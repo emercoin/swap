@@ -1,0 +1,93 @@
+# swap — EMC cashier (USDT → EMC)
+
+A **dumb till** with one primitive. All business logic stays in the calling
+services; swap knows nothing about NVS/DNS/subscriptions.
+
+```
+buy_emc(amount_usdt, destination_emc_address, callback_url, ref)
+  → collect USDT on a unique deposit address
+  → on confirmation, deliver EMC (fixed rate ×10) to destination
+  → notify the caller with a SIGNED callback
+```
+
+`destination` is opaque to swap: it can be a **service's** address (the service
+then renders its own product on that EMC — the user only ever pays USDT and
+never touches a wallet) or the **user's own** address (raw on-ramp).
+
+See [`FOR_CLAUDE_TODO.md`](./FOR_CLAUDE_TODO.md) for the full design rationale.
+
+## Locked decisions
+
+| Topic | Decision |
+|-------|----------|
+| Rate | static **1 USDT = 10 EMC** |
+| Cap | **≤ 10 USDT** on start |
+| USDT rail | **TRC20 (TRON)** |
+| Payment match | **unique HD deposit address per order** (index = order_id) |
+| EMC delivery | via **emercoin adapter** `POST /wallet/send` (`X-Internal-Key`) |
+| Callback signature | **HMAC-SHA256** over canonical body, per-service secret |
+| KYC | none (amounts far below threshold) |
+| AML | minimal but mandatory — OFAC SDN + Tether freeze blacklist |
+
+## Layout
+
+```
+swap/
+  config.py        env-driven settings (pydantic-settings)
+  models.py        OrderStatus enum + request/response schemas
+  states.py        order state machine (allowed transitions)
+  schema.sql       DDL: services/orders/deposits/aml_checks/sweeps/callbacks
+  db.py            SQLite connection + init
+  repository.py    DB access layer
+  auth.py          caller auth by API key
+  orders.py        buy_emc business logic (shared by REST + MCP)
+  main.py          FastAPI app (REST: POST /buy_emc, GET /order/{id})
+  mcp_app.py       FastMCP wrapper (buy_emc + status as MCP tools)
+  clients/
+    adapter.py     EMC delivery + balance via emercoin adapter
+    trongrid.py    TRC20 deposit watcher source (TronGrid)
+  tron/
+    hd.py          HD derivation of deposit addresses (BIP44, coin 195)
+  services/
+    aml.py         OFAC + Tether blacklist screening
+    delivery.py    deliver EMC from reserve (idempotent)
+    callback.py    signed callback notifier + retries
+    watcher.py     background loop: deposits → confirm → AML → deliver → notify
+    sweep.py       USDT consolidation from deposit addresses
+```
+
+## State machine
+
+```
+created → awaiting_payment → confirmed → emc_delivered → notified (done)
+                                ↘ underpaid    (top-up or partial refund)
+                                ↘ overpaid     (refund excess)
+                                ↘ aml_hold     (sender blacklisted → manual)
+                                ↘ deliver_failed (retry; else refund USDT)
+expired — no payment before TTL
+```
+
+## Dev
+
+```bash
+uv sync --extra dev
+cp .env.example .env          # fill secrets
+uv run uvicorn swap.main:app --reload --port 8002
+```
+
+EMC delivery and the TRON watcher need the emercoin adapter and TronGrid creds;
+for local end-to-end you can bring up the node+adapter from `emercoin_docker`
+(`docker compose --profile dev up`). TRON parts are verified in the sandbox
+before they are wired into the watcher.
+
+> Status: **full happy path verified live end-to-end** (+ 27 unit tests). On
+> 2026-06-14 a real run took a TRC20 USDT deposit on TRON **Nile testnet** →
+> `confirmed` → delivered real **EMC on Emercoin mainnet** (via the adapter
+> `/wallet/send`) → **signed callback** verified by the receiver against the
+> service's HMAC secret:
+> `awaiting_payment → confirmed → emc_delivered → notified`.
+> See `docs/TESTNET.md` for the runbook (`scripts/testnet/`).
+>
+> Still scaffolded (TODO): AML blacklist loading (`services/aml.load_blacklists`
+> — OFAC + Tether), USDT sweep / TRON tx signing (`services/sweep.py`), and the
+> MCP transport-level auth.

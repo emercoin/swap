@@ -1,0 +1,18 @@
+# swap stack. The Emercoin node + adapter come from the emercoin_docker repo;
+# point SWAP_ADAPTER_URL at that adapter (same host network or a shared network).
+services:
+  swap:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: ../.env
+    environment:
+      SWAP_DB_PATH: /data/swap.db
+    volumes:
+      - swap_data:/data
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+
+volumes:
+  swap_data:

@@ -1,0 +1,37 @@
+[project]
+name = "emercoin-swap"
+version = "0.1.0"
+description = "swap — EMC cashier: USDT (TRC20) in, EMC out to a destination address, signed callback. A dumb till; all business logic lives in the calling services."
+# 3.12/3.13 only: the native deps (pydantic-core, coincurve via bip-utils) have
+# no stable wheels for 3.14, and 3.14 is still alpha — pin a release interpreter.
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "aiosqlite>=0.20",
+    "mcp>=1.2",
+    "bip-utils>=2.9",        # TRON HD derivation (BIP44, coin 195)
+]
+
+[project.optional-dependencies]
+# Testnet (Nile) end-to-end tooling: deploy a test TRC20 + a payer that sends it.
+# tronpy also becomes a real dep once the sweep module signs TRON txs.
+testnet = [
+    "tronpy>=0.4",
+    "py-solc-x>=2.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
