@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Offer &amp; terms · swap.emercoin.com</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <meta name="description" content="Terms of the USDT→EMC swap: fixed rate, one exact transfer, one-way, no refunds, no account.">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="card" style="max-width:560px">
+    <div class="brand"><b>&#9679;</b> emer<span>coin</span> swap</div>
+    <div class="accent"></div>
+    <h1>Offer &amp; terms</h1>
+    <p class="sub">Please read before paying. Using the service means you accept
+      these terms.</p>
+
+    <div class="doc">
+      <h2>What this is</h2>
+      <p>A fixed-rate on-ramp: you pay <b>USDT (TRC20)</b> and receive <b>EMC</b>
+        (Emercoin) at an Emercoin address you provide. This is a payment for a
+        delivery of EMC — not an exchange account, custody, or investment service.
+        No sign-up, no KYC at the amounts offered.</p>
+
+      <h2>Rate &amp; limits</h2>
+      <ul>
+        <li>Fixed rate: <b>1 USDT = 10 EMC</b>. No quoting, no slippage.</li>
+        <li>Per order: <b>5–10 USDT</b>.</li>
+      </ul>
+
+      <h2>How payment is matched</h2>
+      <ul>
+        <li>Each order shows a single deposit address and an <b>exact</b> amount
+          to pay (e.g. <code>5.000001</code>). The amount is your order's tag.</li>
+        <li>Pay that <b>exact figure</b> in a <b>single</b> transfer. Pay it from a
+          wallet you control.</li>
+        <li>An amount that does not match an open order cannot be attributed and is
+          <b>not tracked and not refunded</b>. Sending a different amount, multiple
+          partial transfers, or paying after the order expires are at your own risk.</li>
+        <li>Orders expire if unpaid within the displayed window.</li>
+      </ul>
+
+      <h2>One-way, no refunds</h2>
+      <p>The swap is <b>one-way and final</b>. Once USDT is received and EMC is
+        delivered to the address you provided, the transaction is complete. There
+        are no refunds, reversals, or chargebacks. <b>Double-check your EMC address</b>
+        — EMC sent to a wrong but valid address cannot be recovered.</p>
+
+      <h2>Compliance</h2>
+      <p>Incoming payments are screened against sanctions lists and on-chain
+        blacklist signals. A flagged sender is placed on hold for manual review and
+        EMC is not delivered.</p>
+
+      <h2>Availability &amp; liability</h2>
+      <p>The service may be paused without notice (e.g. when the EMC reserve is
+        low — in which case no USDT is taken). It is provided <b>as is</b>, without
+        warranty. To the extent permitted by law, the operator's liability is
+        limited to delivering the EMC owed for a correctly paid, matched order, or
+        the equivalent value where delivery is impossible.</p>
+
+      <h2>For services &amp; AI agents</h2>
+      <p>The same primitive is available programmatically over a
+        <a href="/docs">REST API</a> and MCP: a service buys EMC to its own address
+        so its users pay only USDT and never touch a wallet. See the
+        <a href="/openapi.json">API schema</a>.</p>
+    </div>
+
+    <div class="links" style="margin-top:24px">
+      <a class="btn ghost" href="/">Back to swap</a>
+    </div>
+    <div class="foot">swap.emercoin.com</div>
+  </div>
+</body>
+</html>

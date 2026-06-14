@@ -79,6 +79,20 @@ async def test_network_error_counts_as_failure(fresh_db, capture_posts):
     assert cb["attempts"] == 1 and cb["last_status"] == 0 and cb["delivered"] == 0
 
 
+async def test_web_order_settles_without_callback(fresh_db, capture_posts):
+    """A public/web order (empty callback_url) goes emc_delivered → notified with
+    no callback enqueued — delivery is its terminal step."""
+    calls, _ = capture_posts
+    oid = await _delivered_order(url="")          # no callback target
+
+    await watcher._notify_delivered()
+
+    order = await repository.get_order(oid)
+    assert order["status"] == OrderStatus.NOTIFIED
+    assert await repository.get_callback_for_order(oid) is None   # nothing enqueued
+    assert calls == []                                            # nothing posted
+
+
 async def test_not_due_is_skipped(fresh_db, capture_posts):
     calls, box = capture_posts
     box["code"] = 500

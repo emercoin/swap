@@ -44,6 +44,8 @@ swap/
   orders.py        buy_emc business logic (shared by REST + MCP)
   main.py          FastAPI app (REST: POST /buy_emc, GET /order/{id})
   mcp_app.py       FastMCP wrapper (buy_emc + status as MCP tools)
+  web.py           public keyless /web/* channel (raw on-ramp for humans)
+  site/            static exchanger page + offer (index.html, oferta.html)
   clients/
     adapter.py     EMC delivery + balance via emercoin adapter
     trongrid.py    TRC20 deposit watcher source (TronGrid)

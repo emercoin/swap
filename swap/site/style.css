@@ -1,0 +1,84 @@
+/* swap.emercoin.com — same emercoin brand as ai.emercoin.com (purple #4A3777 +
+   gold #FFC033 on light purple), extended with the exchanger form/result bits. */
+:root{
+  --purple:#4A3777; --purple-mid:#7B6696; --field:#f6f2fb; --gold:#FFC033; --ink:#404750;
+  --ok:#1e7a4d; --warn:#b26a00; --err:#b20f03;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  color:var(--ink);background:var(--field);
+  display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;
+}
+.card{
+  background:#fff;width:100%;max-width:460px;border-radius:16px;padding:36px 32px;
+  box-shadow:0 10px 40px rgba(74,55,119,.14);border:1px solid #e4d6f5;text-align:center;
+}
+.brand{font-size:30px;font-weight:800;letter-spacing:-.5px;margin-bottom:18px;color:var(--purple)}
+.brand span{color:var(--purple-mid)}
+.brand b{color:var(--gold);font-weight:800}
+.accent{height:4px;width:54px;background:var(--gold);border-radius:3px;margin:0 auto 22px}
+h1{font-size:22px;margin:0 0 8px;color:var(--purple)}
+p.sub{margin:0 0 24px;color:var(--purple-mid);font-size:14px;line-height:1.55}
+
+/* form */
+form{text-align:left}
+label.fld{display:block;font-size:12px;color:var(--purple-mid);margin:14px 0 6px;font-weight:600}
+input{
+  width:100%;padding:12px 14px;border:1px solid #e4d6f5;border-radius:10px;
+  font-size:15px;color:var(--ink);background:var(--field);font-family:inherit;
+}
+input:focus{outline:none;border-color:var(--purple-mid)}
+.rate{font-size:13px;color:var(--purple-mid);margin:10px 2px 0}
+.rate b{color:var(--purple)}
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+  padding:13px 18px;border-radius:10px;border:none;cursor:pointer;margin-top:20px;
+  font-size:15px;font-weight:600;text-decoration:none;
+  background:var(--purple);color:#fff;transition:background .15s;
+}
+.btn:hover{background:#3b2c61}
+.btn:disabled{opacity:.55;cursor:default}
+.btn.ghost{background:#fff;color:var(--purple);border:1px solid #e4d6f5}
+.btn.ghost:hover{background:var(--field)}
+
+/* pay/result */
+.pay{text-align:left;margin-top:6px}
+.payrow{margin:16px 0}
+.payrow label{display:block;font-size:12px;color:var(--purple-mid);margin-bottom:6px}
+.val{
+  display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid #e4d6f5;
+  border-radius:10px;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:13px;color:var(--ink);word-break:break-all;
+}
+.val .big{font-size:18px;font-weight:700;color:var(--purple)}
+.copy{
+  margin-left:auto;flex:none;padding:6px 10px;border-radius:7px;border:1px solid var(--purple);
+  background:#fff;color:var(--purple);font-weight:600;cursor:pointer;font-size:12px;
+}
+.copy:hover{background:var(--field)}
+.note{font-size:12px;color:var(--warn);line-height:1.5;margin:10px 2px 0}
+
+/* status */
+.badge{
+  display:inline-flex;align-items:center;gap:8px;background:var(--field);color:var(--purple);
+  border-radius:999px;padding:7px 16px;font-size:14px;font-weight:600;margin:18px 0 4px;
+}
+.badge.ok{color:var(--ok)} .badge.warn{color:var(--warn)} .badge.err{color:var(--err)}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor;animation:pulse 1.2s infinite}
+.badge.ok .dot,.badge.err .dot{animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.statusmsg{font-size:13px;color:var(--purple-mid);line-height:1.55;margin:6px 0 0}
+
+.links{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+.foot{margin-top:22px;font-size:12px;color:#b09cc9;letter-spacing:.3px}
+.foot a{color:#b09cc9;text-decoration:none}
+.foot a:hover{text-decoration:underline}
+.hidden{display:none}
+
+/* offer page text */
+.doc{text-align:left;color:var(--ink);font-size:14px;line-height:1.65}
+.doc h2{color:var(--purple);font-size:16px;margin:22px 0 6px}
+.doc ul{padding-left:20px;margin:6px 0}
+.doc code{background:var(--field);padding:1px 5px;border-radius:5px;font-size:13px}

@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     # callbacks
     callback_max_retries: int = 6
 
+    # public web channel (raw on-ramp for humans): a first-party "web" service
+    # the browser drives without holding any key. The service-to-service API
+    # (X-API-Key + callback) stays the primary interface; this only adds a public
+    # surface. Orders created here carry no callback_url (the page polls instead).
+    web_channel_enabled: bool = True
+    web_service_name: str = "web"          # first-party service row driving /web
+    web_rate_per_min: int = 6              # max order creations per client IP / min
+    serve_static: bool = False             # serve swap/site/ from the app (local dev;
+    #                                        in prod Caddy serves the static corpus)
+
     # AML
     # OFAC sanctioned TRON addresses (per-chain list auto-built from the OFAC SDN).
     aml_ofac_url: str = (

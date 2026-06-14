@@ -15,14 +15,19 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from pathlib import Path
 
-from . import db, repository
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+
+from . import db, repository, web
 from .auth import Service, require_service
 from .config import settings
 from .models import BuyEmcRequest, BuyEmcResponse, OrderResponse, OrderStatus
 from .orders import OrderError, ReserveError, buy_emc
 from .services import watcher
+
+SITE_DIR = Path(__file__).parent / "site"
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("swap")
@@ -33,6 +38,8 @@ RUN_WATCHER = True  # set False in tests / API-only deployments
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect()
+    if settings.web_channel_enabled:
+        await web.ensure_web_service()       # first-party "web" service for /web/*
     stop = asyncio.Event()
     task: asyncio.Task | None = None
     if RUN_WATCHER:
@@ -53,6 +60,10 @@ app = FastAPI(
     description="USDT (TRC20) in → EMC out → signed callback. A dumb till.",
     lifespan=lifespan,
 )
+
+
+if settings.web_channel_enabled:
+    app.include_router(web.router)           # public /web/* (raw on-ramp for humans)
 
 
 @app.get("/healthz")
@@ -99,3 +110,10 @@ async def get_order(
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
+
+
+# Static site (exchanger page + offer). In production Caddy serves swap/site and
+# only proxies the API here; locally `SWAP_SERVE_STATIC=true` lets the app serve
+# it too. Mounted last so the API routes above take precedence over "/".
+if settings.serve_static and SITE_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(SITE_DIR), html=True), name="site")

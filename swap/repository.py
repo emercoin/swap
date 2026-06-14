@@ -39,6 +39,12 @@ async def get_service_by_id(service_id: int) -> aiosqlite.Row | None:
     return await cur.fetchone()
 
 
+async def get_service_by_name(name: str) -> aiosqlite.Row | None:
+    conn = await get_conn()
+    cur = await conn.execute("SELECT * FROM services WHERE name = ?", (name,))
+    return await cur.fetchone()
+
+
 # --- orders ----------------------------------------------------------------
 
 async def find_order_by_ref(service_id: int, ref: str) -> aiosqlite.Row | None:

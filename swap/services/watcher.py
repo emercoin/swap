@@ -153,6 +153,11 @@ async def _notify_delivered() -> None:
     """
     now = _now_iso()
     for order in await repository.list_orders_by_status(OrderStatus.EMC_DELIVERED):
+        if not order["callback_url"]:
+            # Public/web order: nobody to notify — delivery is the terminal step.
+            await repository.update_status(order["id"], OrderStatus.NOTIFIED)
+            log.info("order %s notified (no callback — public/web order)", order["id"])
+            continue
         cb = await repository.get_callback_for_order(order["id"])
         if cb is None:
             await repository.enqueue_callback(

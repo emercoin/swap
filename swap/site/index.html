@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>swap · USDT → EMC · swap.emercoin.com</title>
+  <link rel="canonical" href="https://swap.emercoin.com/">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <meta name="description" content="Pay USDT (TRC20), receive EMC at your Emercoin address. A fixed-rate on-ramp: one exact transfer, no account, no refunds. REST API and MCP for services and AI agents.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="swap — USDT → EMC">
+  <meta property="og:description" content="Pay USDT (TRC20), receive EMC at your Emercoin address. Fixed rate, one exact transfer.">
+  <meta property="og:url" content="https://swap.emercoin.com/">
+  <link rel="alternate" type="application/json" title="OpenAPI" href="/openapi.json">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><b>&#9679;</b> emer<span>coin</span> swap</div>
+    <div class="accent"></div>
+    <h1>USDT → EMC</h1>
+    <p class="sub">Pay <b>USDT (TRC20)</b>, receive <b>EMC</b> at your Emercoin
+      address. Fixed rate, one exact transfer — no account, no wallet connect.</p>
+
+    <!-- step 1: the form -->
+    <form id="form">
+      <label class="fld" for="amount">Amount to pay (USDT)</label>
+      <input id="amount" type="number" step="0.01" inputmode="decimal" placeholder="5.00" required>
+      <label class="fld" for="dest">Your EMC address</label>
+      <input id="dest" type="text" autocomplete="off" spellcheck="false"
+             placeholder="em1… or E…" required>
+      <p class="rate" id="rate">You receive <b id="emcOut">—</b> EMC</p>
+      <button class="btn" id="submit" type="submit">Get EMC</button>
+      <p class="note" id="formErr"></p>
+    </form>
+
+    <!-- step 2: pay exactly -->
+    <div class="pay hidden" id="pay">
+      <div class="payrow">
+        <label>Send EXACTLY this amount of USDT (TRC20)</label>
+        <div class="val"><span class="big" id="payAmount">—</span>&nbsp;USDT
+          <button class="copy" data-copy="payAmount">Copy</button></div>
+      </div>
+      <div class="payrow">
+        <label>To this TRON address</label>
+        <div class="val"><span id="payAddr">—</span>
+          <button class="copy" data-copy="payAddr">Copy</button></div>
+      </div>
+      <p class="note">Pay the <b>exact</b> figure above in a <b>single</b> transfer.
+        It is one-way: a wrong amount cannot be matched and is not refunded. The
+        order expires at <span id="expires">—</span>.</p>
+
+      <div class="badge" id="badge"><span class="dot"></span><span id="badgeText">Waiting for payment…</span></div>
+      <p class="statusmsg" id="statusMsg">Send the USDT above; this page updates automatically.</p>
+      <div class="payrow hidden" id="txrow">
+        <label>EMC delivery txid</label>
+        <div class="val"><span id="txid">—</span><button class="copy" data-copy="txid">Copy</button></div>
+      </div>
+      <button class="btn ghost" id="again" type="button">New order</button>
+    </div>
+
+    <div class="foot">
+      <a href="/oferta.html">Offer &amp; terms</a> ·
+      <a href="/docs">API</a> ·
+      <a href="https://ai.emercoin.com">ai.emercoin.com</a>
+      <div style="margin-top:6px">swap.emercoin.com</div>
+    </div>
+  </div>
+
+  <script>
+  const $ = id => document.getElementById(id);
+  let cfg = { min_usdt: 5, max_usdt: 10, emc_per_usdt: 10 };
+  let poll = null;
+
+  // copy buttons (event-delegated)
+  document.addEventListener('click', e => {
+    const b = e.target.closest('.copy'); if (!b) return;
+    navigator.clipboard.writeText($(b.dataset.copy).textContent.trim())
+      .then(() => { const t = b.textContent; b.textContent = 'Copied'; setTimeout(() => b.textContent = t, 1200); });
+  });
+
+  function recalcEmc() {
+    const a = parseFloat($('amount').value);
+    $('emcOut').textContent = (a > 0) ? (a * cfg.emc_per_usdt).toFixed(2) : '—';
+  }
+  $('amount').addEventListener('input', recalcEmc);
+
+  fetch('/web/config').then(r => r.json()).then(c => {
+    cfg = c;
+    $('amount').min = c.min_usdt; $('amount').max = c.max_usdt;
+    $('amount').placeholder = c.min_usdt.toFixed(2);
+    $('rate').insertAdjacentHTML('beforeend',
+      ` &middot; rate 1 USDT = ${c.emc_per_usdt} EMC &middot; ${c.min_usdt}–${c.max_usdt} USDT`);
+  }).catch(() => {});
+
+  const STATES = {
+    awaiting_payment: ['', 'Waiting for payment…', 'Send the USDT above; this page updates automatically.'],
+    confirmed:        ['', 'Payment received', 'Confirmed on TRON — delivering your EMC now.'],
+    deliver_failed:   ['warn', 'Delivery delayed', 'Payment received; EMC delivery is retrying automatically.'],
+    emc_delivered:    ['ok', 'EMC sent', 'EMC delivered to your address — finalizing.'],
+    notified:         ['ok', 'Done', 'EMC delivered to your address. Thank you!'],
+    aml_hold:         ['warn', 'On hold', 'Flagged for manual review. Contact the operator.'],
+    expired:          ['err', 'Expired', 'No matching payment arrived in time. Start a new order.'],
+    underpaid:        ['warn', 'Amount mismatch', 'The amount did not match. Contact the operator.'],
+    overpaid:         ['warn', 'Amount mismatch', 'The amount did not match. Contact the operator.'],
+  };
+  const DONE = new Set(['notified', 'expired', 'aml_hold', 'underpaid', 'overpaid']);
+
+  function render(s) {
+    const [cls, text, msg] = STATES[s.status] || ['', s.status, ''];
+    $('badge').className = 'badge ' + cls;
+    $('badgeText').textContent = text;
+    $('statusMsg').textContent = msg;
+    if (s.emc_txid) { $('txid').textContent = s.emc_txid; $('txrow').classList.remove('hidden'); }
+    if (DONE.has(s.status) && poll) { clearInterval(poll); poll = null; }
+  }
+
+  async function check(token) {
+    try {
+      const r = await fetch('/web/order/' + encodeURIComponent(token));
+      if (r.ok) render(await r.json());
+    } catch (_) {}
+  }
+
+  $('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    $('formErr').textContent = '';
+    $('submit').disabled = true;
+    try {
+      const r = await fetch('/web/order', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          amount_usdt: parseFloat($('amount').value),
+          destination_emc_address: $('dest').value.trim(),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { $('formErr').textContent = d.detail || 'Could not create order.'; $('submit').disabled = false; return; }
+      $('payAmount').textContent = d.amount_usdt.toFixed(6);
+      $('payAddr').textContent = d.deposit_address;
+      $('expires').textContent = new Date(d.expires_at).toLocaleString();
+      $('form').classList.add('hidden');
+      $('pay').classList.remove('hidden');
+      render({ status: d.status });
+      check(d.token);
+      poll = setInterval(() => check(d.token), 6000);
+    } catch (_) {
+      $('formErr').textContent = 'Network error. Try again.';
+      $('submit').disabled = false;
+    }
+  });
+
+  $('again').addEventListener('click', () => {
+    if (poll) { clearInterval(poll); poll = null; }
+    $('pay').classList.add('hidden'); $('form').classList.remove('hidden');
+    $('submit').disabled = false; $('txrow').classList.add('hidden');
+  });
+  </script>
+</body>
+</html>
