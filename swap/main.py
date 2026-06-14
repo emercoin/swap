@@ -19,6 +19,7 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from . import db, repository
 from .auth import Service, require_service
+from .config import settings
 from .models import BuyEmcRequest, BuyEmcResponse, OrderResponse, OrderStatus
 from .orders import OrderError, buy_emc
 from .services import watcher
@@ -90,7 +91,7 @@ async def get_order(
         amount_usdt=row["amount_usdt"],
         emc_amount=row["emc_amount"],
         destination_emc_address=row["destination_emc"],
-        deposit_address=row["deposit_address"] or "",
+        deposit_address=settings.deposit_address,
         emc_txid=row["emc_txid"],
         expires_at=row["expires_at"],
         created_at=row["created_at"],

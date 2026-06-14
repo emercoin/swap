@@ -59,7 +59,9 @@ async def insert_order(
     callback_url: str,
     expires_at: str,
 ) -> int:
-    """Insert a `created` order. Deposit address is set afterwards (needs the id)."""
+    """Insert an `awaiting_payment` order. `amount_usdt` is the unique tagged pay
+    amount — a UNIQUE conflict here means either a duplicate (service, ref) or an
+    amount-tag collision; the caller (orders.buy_emc) disambiguates and retries."""
     conn = await get_conn()
     cur = await conn.execute(
         """INSERT INTO orders
@@ -68,24 +70,11 @@ async def insert_order(
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             service_id, ref, amount_usdt, emc_amount, destination_emc,
-            callback_url, OrderStatus.CREATED, expires_at,
+            callback_url, OrderStatus.AWAITING_PAYMENT, expires_at,
         ),
     )
     await conn.commit()
     return cur.lastrowid
-
-
-async def set_deposit_address(order_id: int, address: str) -> None:
-    """Bind the derived deposit address and move created → awaiting_payment."""
-    conn = await get_conn()
-    await conn.execute(
-        """UPDATE orders
-              SET deposit_address = ?, status = ?,
-                  updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-            WHERE id = ?""",
-        (address, OrderStatus.AWAITING_PAYMENT, order_id),
-    )
-    await conn.commit()
 
 
 async def get_order(order_id: int) -> aiosqlite.Row | None:
@@ -94,10 +83,14 @@ async def get_order(order_id: int) -> aiosqlite.Row | None:
     return await cur.fetchone()
 
 
-async def get_order_by_deposit(address: str) -> aiosqlite.Row | None:
+async def find_open_order_by_amount(amount_usdt: float) -> aiosqlite.Row | None:
+    """An awaiting order whose tagged amount exactly matches a payment (within
+    half a micro-USDT). Amounts are globally unique → at most one match."""
     conn = await get_conn()
     cur = await conn.execute(
-        "SELECT * FROM orders WHERE deposit_address = ?", (address,)
+        """SELECT * FROM orders
+            WHERE status = ? AND ABS(amount_usdt - ?) < 0.0000005""",
+        (OrderStatus.AWAITING_PAYMENT, amount_usdt),
     )
     return await cur.fetchone()
 
@@ -138,16 +131,23 @@ async def set_emc_txid(order_id: int, txid: str) -> None:
 
 # --- deposits / aml / sweeps / callbacks -----------------------------------
 
+async def deposit_seen(tron_txid: str) -> bool:
+    """Whether this transfer was already processed (skip re-processing per tick)."""
+    conn = await get_conn()
+    cur = await conn.execute("SELECT 1 FROM deposits WHERE tron_txid = ?", (tron_txid,))
+    return await cur.fetchone() is not None
+
+
 async def record_deposit(
-    *, order_id: int, tron_txid: str, from_address: str,
+    *, order_id: int | None, tron_txid: str, from_address: str,
     amount_usdt: float, confirmations: int,
 ) -> None:
-    """Idempotent on tron_txid — a re-seen transfer just updates confirmations."""
+    """Record a confirmed transfer. order_id is None for an unmatched payment."""
     conn = await get_conn()
     await conn.execute(
         """INSERT INTO deposits (order_id, tron_txid, from_address, amount_usdt, confirmations)
            VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(tron_txid) DO UPDATE SET confirmations = excluded.confirmations""",
+           ON CONFLICT(tron_txid) DO NOTHING""",
         (order_id, tron_txid, from_address, amount_usdt, confirmations),
     )
     await conn.commit()

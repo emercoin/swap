@@ -27,13 +27,20 @@ class Settings(BaseSettings):
     trongrid_api_key: str = ""
     usdt_contract: str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"  # mainnet USDT TRC20
 
-    # HD deposit wallet (index = order_id) + sweep target
-    tron_mnemonic: str = ""
-    sweep_address: str = ""
+    # Single shared deposit address shown to all buyers; payments are matched by
+    # a unique per-order amount tag (not by address). Keep its key (e.g. mnemonic
+    # index 0) so collected USDT can later be moved to treasury / off-ramp.
+    deposit_address: str = ""
+    tron_mnemonic: str = ""          # controls deposit_address / cold ops
+    sweep_address: str = ""          # treasury target (manual, low-volume)
+
+    # Payment-amount tagging: smallest unit is 1e-6 USDT (TRON USDT = 6 decimals).
+    tag_step_units: int = 1          # micro-USDT increment per uniqueness bump
+    tag_max_tries: int = 100000      # how many tags to probe before giving up
 
     # economics
     emc_per_usdt: float = 10.0
-    min_usdt: float = 1.0
+    min_usdt: float = 5.0     # below this the TRON gas eats the trade; see docs
     max_usdt: float = 10.0
 
     # settlement

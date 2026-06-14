@@ -21,13 +21,14 @@ See [`FOR_CLAUDE_TODO.md`](./FOR_CLAUDE_TODO.md) for the full design rationale.
 | Topic | Decision |
 |-------|----------|
 | Rate | static **1 USDT = 10 EMC** |
-| Cap | **≤ 10 USDT** on start |
+| Cap / floor | **5–10 USDT** (floor 5: below it TRON gas dominates) |
 | USDT rail | **TRC20 (TRON)** |
-| Payment match | **unique HD deposit address per order** (index = order_id) |
+| Payment match | **one shared deposit address + unique per-order amount tag** |
 | EMC delivery | via **emercoin adapter** `POST /wallet/send` (`X-Internal-Key`) |
 | Callback signature | **HMAC-SHA256** over canonical body, per-service secret |
 | KYC | none (amounts far below threshold) |
 | AML | minimal but mandatory — OFAC SDN + Tether freeze blacklist |
+| Terms | exact amount, single transfer, **one-way (no refunds)** — state in the offer |
 
 ## Layout
 
@@ -90,5 +91,11 @@ before they are wired into the watcher.
 >
 > AML is live: OFAC SDN addresses (TRON) loaded into memory + refreshed, and a
 > per-deposit live Tether `isBlackListed` check; a hit → `aml_hold` (no delivery).
-> Still scaffolded (TODO): USDT sweep / TRON tx signing (`services/sweep.py`) and
-> MCP transport-level auth.
+>
+> Payment matching: pivoted from a unique HD address per order to **one shared
+> deposit address + a unique per-order amount tag** (matched by exact amount).
+> This removes per-order sweeping and the fresh-address gas penalty; the trade-off
+> is exact-amount, single-transfer payments (no auto under/overpaid). Collected
+> USDT is moved to treasury / off-ramp manually at low volume.
+> Deferred: USDT sweep / TRON tx signing (`services/sweep.py`, kept off the hot
+> path) and MCP transport-level auth.

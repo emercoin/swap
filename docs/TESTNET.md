@@ -34,8 +34,13 @@ In `.env`:
 ```
 SWAP_TRONGRID_URL=https://nile.trongrid.io
 SWAP_USDT_CONTRACT=<address from step 2>
-SWAP_TRON_MNEMONIC=<your testnet mnemonic>     # generates deposit addresses
+SWAP_TRON_MNEMONIC=<your testnet mnemonic>     # controls the deposit address
+SWAP_DEPOSIT_ADDRESS=<a Nile address you control>   # the shared receive address
 ```
+All orders share `SWAP_DEPOSIT_ADDRESS`; each gets a unique exact amount to pay
+(e.g. 5.000001) — the e2e script reads that exact figure and pays it. For a Nile
+address you control, derive index 0 from your mnemonic, e.g.:
+`uv run python -c "from swap.config import settings; settings.tron_mnemonic='<mnemonic>'; from swap.tron.hd import derive_deposit_address as d; print(d(0))"`
 Run swap and register a calling service:
 ```bash
 uv run uvicorn swap.main:app --port 8002        # in one shell

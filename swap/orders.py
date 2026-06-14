@@ -1,16 +1,18 @@
 """buy_emc business logic — shared by the REST API and the MCP tool.
 
-Keeps validation, idempotency and deposit-address derivation in one place so the
-two front doors (REST, MCP) cannot drift apart.
+Payments land on one shared deposit address and are matched by a unique
+**amount tag**: the caller's nominal amount nudged up by the smallest number of
+micro-USDT that makes the exact pay amount globally unique. The buyer must pay
+that exact figure (per the terms, imprecise amounts are not tracked/refunded).
 """
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from . import repository
 from .config import settings
 from .models import BuyEmcResponse, OrderStatus
-from .tron.hd import derive_deposit_address
 
 
 class OrderError(Exception):
@@ -29,48 +31,59 @@ async def buy_emc(
     callback_url: str,
     ref: str,
 ) -> BuyEmcResponse:
-    """Create (or return the existing, idempotent) order and its deposit address."""
+    """Create (or return the existing, idempotent) order with a unique pay amount."""
     if amount_usdt < settings.min_usdt:
         raise OrderError(f"amount below minimum {settings.min_usdt} USDT")
     if amount_usdt > settings.max_usdt:
         raise OrderError(f"amount above cap {settings.max_usdt} USDT")
+    if not settings.deposit_address:
+        raise OrderError("deposit address not configured")
 
     # Idempotency: (service_id, ref) → one order, one EMC delivery.
     existing = await repository.find_order_by_ref(service_id, ref)
     if existing is not None:
         return _to_response(existing)
 
-    emc_amount = round(amount_usdt * settings.emc_per_usdt, 8)
+    base_units = round(amount_usdt * 1_000_000)
     expires_at = _iso(datetime.now(timezone.utc) + timedelta(minutes=settings.order_ttl_minutes))
 
-    order_id = await repository.insert_order(
-        service_id=service_id,
-        ref=ref,
-        amount_usdt=amount_usdt,
-        emc_amount=emc_amount,
-        destination_emc=destination_emc_address,
-        callback_url=callback_url,
-        expires_at=expires_at,
-    )
+    # Probe successive amount tags until one is globally unique.
+    for k in range(settings.tag_max_tries):
+        pay_units = base_units + k * settings.tag_step_units
+        pay_amount = round(pay_units / 1_000_000, 6)
+        emc_amount = round(pay_amount * settings.emc_per_usdt, 8)
+        try:
+            order_id = await repository.insert_order(
+                service_id=service_id,
+                ref=ref,
+                amount_usdt=pay_amount,
+                emc_amount=emc_amount,
+                destination_emc=destination_emc_address,
+                callback_url=callback_url,
+                expires_at=expires_at,
+            )
+        except sqlite3.IntegrityError:
+            # Either (service, ref) raced in, or this amount tag is taken.
+            dup = await repository.find_order_by_ref(service_id, ref)
+            if dup is not None:
+                return _to_response(dup)
+            continue  # amount-tag collision → try the next tag
+        return BuyEmcResponse(
+            order_id=order_id,
+            deposit_address=settings.deposit_address,
+            amount_usdt=pay_amount,
+            emc_amount=emc_amount,
+            status=OrderStatus.AWAITING_PAYMENT,
+            expires_at=expires_at,
+        )
 
-    # HD address index = order_id → globally unique, collision-free deposit address.
-    deposit_address = derive_deposit_address(order_id)
-    await repository.set_deposit_address(order_id, deposit_address)
-
-    return BuyEmcResponse(
-        order_id=order_id,
-        deposit_address=deposit_address,
-        amount_usdt=amount_usdt,
-        emc_amount=emc_amount,
-        status=OrderStatus.AWAITING_PAYMENT,
-        expires_at=expires_at,
-    )
+    raise OrderError("could not allocate a unique payment amount; try again")
 
 
 def _to_response(row) -> BuyEmcResponse:
     return BuyEmcResponse(
         order_id=row["id"],
-        deposit_address=row["deposit_address"],
+        deposit_address=settings.deposit_address,
         amount_usdt=row["amount_usdt"],
         emc_amount=row["emc_amount"],
         status=OrderStatus(row["status"]),

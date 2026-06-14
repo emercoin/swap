@@ -16,8 +16,7 @@ async def _delivered_order(ref: str = "inv-1", url: str = "http://svc/cb") -> in
         destination_emc="EMCdest", callback_url=url,
         expires_at="2999-01-01T00:00:00Z",
     )
-    await repository.set_deposit_address(oid, "TFAKE")          # → awaiting_payment
-    await repository.update_status(oid, OrderStatus.CONFIRMED)
+    await repository.update_status(oid, OrderStatus.CONFIRMED)  # inserted awaiting → confirmed
     await repository.set_emc_txid(oid, "emc-tx-abc")
     await repository.update_status(oid, OrderStatus.EMC_DELIVERED)
     return oid

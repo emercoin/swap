@@ -1,57 +1,69 @@
 import pytest
 
 from swap import orders, repository
+from swap.config import settings
 from swap.models import OrderStatus
 
 
 @pytest.fixture
-def patched_hd(monkeypatch):
-    # Avoid needing a real mnemonic / bip_utils: deterministic fake address per index.
-    monkeypatch.setattr(orders, "derive_deposit_address", lambda i: f"TFAKE{i:034d}")
+def deposit_addr(monkeypatch):
+    monkeypatch.setattr(settings, "deposit_address", "TSharedDepositAddr")
 
 
 async def _service():
     return await repository.create_service("svc", "swk_test", "secret")
 
 
-async def test_buy_emc_creates_order(fresh_db, patched_hd):
+async def test_buy_emc_creates_order(fresh_db, deposit_addr):
     sid = await _service()
     resp = await orders.buy_emc(
         service_id=sid, amount_usdt=5.0,
         destination_emc_address="EMCdest", callback_url="http://svc/cb", ref="inv-1",
     )
     assert resp.order_id > 0
-    assert resp.emc_amount == 50.0          # ×10 fixed rate
-    assert resp.deposit_address == f"TFAKE{resp.order_id:034d}"
+    assert resp.deposit_address == "TSharedDepositAddr"   # one shared address
+    assert resp.amount_usdt == 5.0                        # first order: no tag bump
+    assert resp.emc_amount == 50.0                        # ×10 fixed rate
     assert resp.status == OrderStatus.AWAITING_PAYMENT
 
 
-async def test_buy_emc_is_idempotent_on_ref(fresh_db, patched_hd):
+async def test_unique_amount_tag(fresh_db, deposit_addr):
     sid = await _service()
-    a = await orders.buy_emc(
-        service_id=sid, amount_usdt=5.0,
-        destination_emc_address="EMCdest", callback_url="http://svc/cb", ref="dup",
-    )
-    b = await orders.buy_emc(
-        service_id=sid, amount_usdt=5.0,
-        destination_emc_address="EMCdest", callback_url="http://svc/cb", ref="dup",
-    )
-    assert a.order_id == b.order_id         # same ref → same order, no double deposit
+    a = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="r1")
+    b = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="r2")
+    assert a.amount_usdt == 5.0
+    assert b.amount_usdt == 5.000001          # bumped one micro-USDT to stay unique
+    assert a.order_id != b.order_id
 
 
-async def test_buy_emc_enforces_cap(fresh_db, patched_hd):
+async def test_buy_emc_is_idempotent_on_ref(fresh_db, deposit_addr):
     sid = await _service()
-    with pytest.raises(orders.OrderError):
-        await orders.buy_emc(
-            service_id=sid, amount_usdt=11.0,  # cap is 10
-            destination_emc_address="EMCdest", callback_url="http://svc/cb", ref="big",
-        )
+    a = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="dup")
+    b = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="dup")
+    assert a.order_id == b.order_id and a.amount_usdt == b.amount_usdt
 
 
-async def test_buy_emc_enforces_minimum(fresh_db, patched_hd):
+async def test_buy_emc_enforces_cap(fresh_db, deposit_addr):
     sid = await _service()
     with pytest.raises(orders.OrderError):
-        await orders.buy_emc(
-            service_id=sid, amount_usdt=0.5,   # min is 1
-            destination_emc_address="EMCdest", callback_url="http://svc/cb", ref="dust",
-        )
+        await orders.buy_emc(service_id=sid, amount_usdt=11.0,
+                             destination_emc_address="E", callback_url="c", ref="big")
+
+
+async def test_buy_emc_enforces_minimum(fresh_db, deposit_addr):
+    sid = await _service()
+    with pytest.raises(orders.OrderError):
+        await orders.buy_emc(service_id=sid, amount_usdt=0.5,   # min is 5
+                             destination_emc_address="E", callback_url="c", ref="dust")
+
+
+async def test_buy_emc_requires_deposit_address(fresh_db, monkeypatch):
+    monkeypatch.setattr(settings, "deposit_address", "")
+    sid = await _service()
+    with pytest.raises(orders.OrderError):
+        await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="x")

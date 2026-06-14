@@ -13,17 +13,19 @@ CREATE TABLE IF NOT EXISTS services (
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
--- Orders: one buy_emc request. HD deposit-address index = id.
+-- Orders: one buy_emc request. Payments land on the single shared deposit
+-- address and are matched by `amount_usdt` — a unique per-order amount tag (the
+-- exact figure the buyer must pay). Globally UNIQUE so a paid amount maps to at
+-- most one order and tags are never reused (no late-payment ambiguity).
 CREATE TABLE IF NOT EXISTS orders (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     service_id          INTEGER NOT NULL REFERENCES services(id),
     ref                 TEXT NOT NULL,                 -- caller's invoice id
-    amount_usdt         REAL NOT NULL,
+    amount_usdt         REAL NOT NULL UNIQUE,          -- EXACT amount to pay (tagged)
     emc_amount          REAL NOT NULL,                 -- amount_usdt * rate snapshot
     destination_emc     TEXT NOT NULL,
     callback_url        TEXT NOT NULL,
-    deposit_address     TEXT UNIQUE,                   -- TRON HD addr (set after id known)
-    status              TEXT NOT NULL DEFAULT 'created',
+    status              TEXT NOT NULL DEFAULT 'awaiting_payment',
     emc_txid            TEXT,                          -- set once delivered
     expires_at          TEXT NOT NULL,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -32,12 +34,14 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-CREATE INDEX IF NOT EXISTS idx_orders_deposit ON orders(deposit_address);
+CREATE INDEX IF NOT EXISTS idx_orders_amount ON orders(amount_usdt);
 
--- Deposits: incoming TRC20 transfers seen on a deposit address.
+-- Deposits: confirmed TRC20 transfers seen on the shared deposit address.
+-- order_id is NULL for an UNMATCHED payment (amount matched no open order) — kept
+-- for audit; per the terms, imprecise amounts are not tracked/refunded.
 CREATE TABLE IF NOT EXISTS deposits (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id        INTEGER NOT NULL REFERENCES orders(id),
+    order_id        INTEGER REFERENCES orders(id),     -- NULL = unmatched
     tron_txid       TEXT NOT NULL UNIQUE,              -- dedupe re-seen transfers
     from_address    TEXT NOT NULL,
     amount_usdt     REAL NOT NULL,

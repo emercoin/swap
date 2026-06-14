@@ -30,9 +30,6 @@ log = logging.getLogger("swap.watcher")
 
 POLL_INTERVAL_SECONDS = 15
 
-# USDT has 6 decimals; tolerate sub-micro float noise when matching amounts.
-_PAYMENT_EPSILON = 1e-6
-
 
 async def run(stop: asyncio.Event) -> None:
     """Main loop; cancel by setting `stop`."""
@@ -85,59 +82,50 @@ async def _expire_stale() -> None:
 
 
 async def _scan_payments(tron: TronGridClient) -> None:
-    """Detect final USDT on each awaiting deposit address → AML → amount-check.
+    """Detect final USDT on the shared deposit address → match by exact amount.
 
-    Every transfer TronGrid returns here is already irreversible (only_confirmed),
-    so finality needs no extra step. Order of checks matters: AML first, so a
-    blacklisted sender can never reach `confirmed`/delivery even with an exact
-    amount (§3 — protects working capital from a freeze).
+    Every transfer TronGrid returns here is already irreversible (only_confirmed).
+    Each transfer is matched to an awaiting order by its **exact tagged amount**;
+    a payment matching no open order is recorded unmatched and ignored (per the
+    terms, imprecise amounts are not tracked/refunded). AML runs before confirm,
+    so a blacklisted sender never reaches delivery even with the exact amount.
     """
-    for order in await repository.list_orders_by_status(OrderStatus.AWAITING_PAYMENT):
-        address = order["deposit_address"]
-        if not address:
-            continue
-        try:
-            transfers = await tron.usdt_transfers_to(address)
-        except Exception:
-            log.exception("trongrid scan failed for order %s", order["id"])
-            continue
-        if not transfers:
+    address = settings.deposit_address
+    if not address:
+        return
+    try:
+        transfers = await tron.usdt_transfers_to(address)
+    except Exception:
+        log.exception("trongrid scan of %s failed", address)
+        return
+
+    for t in transfers:
+        if await repository.deposit_seen(t.txid):
+            continue  # already processed in a previous tick
+        order = await repository.find_open_order_by_amount(t.amount_usdt)
+        await repository.record_deposit(
+            order_id=order["id"] if order else None, tron_txid=t.txid,
+            from_address=t.from_address, amount_usdt=t.amount_usdt,
+            confirmations=settings.confirmations_required,
+        )
+        if order is None:
+            log.info("unmatched deposit %s: %.6f USDT from %s (no open order)",
+                     t.txid, t.amount_usdt, t.from_address)
             continue
 
-        # Persist every seen (final) transfer — idempotent on txid.
-        for t in transfers:
-            await repository.record_deposit(
-                order_id=order["id"], tron_txid=t.txid, from_address=t.from_address,
-                amount_usdt=t.amount_usdt, confirmations=settings.confirmations_required,
-            )
-
-        # AML screen of every distinct sender; any hit → hold, deliver nothing.
-        senders = {t.from_address for t in transfers}
-        blacklisted = None
-        for sender in senders:
-            res = await aml.screen_full(sender, tron)
-            await repository.record_aml_check(
-                order_id=order["id"], address=sender,
-                result="clear" if res.clear else "hit", source=res.source,
-            )
-            if not res.clear:
-                blacklisted = sender
-        if blacklisted is not None:
+        res = await aml.screen_full(t.from_address, tron)
+        await repository.record_aml_check(
+            order_id=order["id"], address=t.from_address,
+            result="clear" if res.clear else "hit", source=res.source,
+        )
+        if not res.clear:
             await repository.update_status(order["id"], OrderStatus.AML_HOLD)
-            log.warning("order %s AML hold: sender %s", order["id"], blacklisted)
+            log.warning("order %s AML hold: sender %s (%s)", order["id"], t.from_address, res.source)
             continue
 
-        total = round(sum(t.amount_usdt for t in transfers), 6)
-        expected = order["amount_usdt"]
-        if total + _PAYMENT_EPSILON < expected:
-            await repository.update_status(order["id"], OrderStatus.UNDERPAID)
-            log.info("order %s underpaid: %.6f < %.6f", order["id"], total, expected)
-        elif total > expected + _PAYMENT_EPSILON:
-            await repository.update_status(order["id"], OrderStatus.OVERPAID)
-            log.info("order %s overpaid: %.6f > %.6f", order["id"], total, expected)
-        else:
-            await repository.update_status(order["id"], OrderStatus.CONFIRMED)
-            log.info("order %s confirmed: %.6f USDT", order["id"], total)
+        await repository.update_status(order["id"], OrderStatus.CONFIRMED)
+        log.info("order %s confirmed: %.6f USDT (exact match) from %s",
+                 order["id"], t.amount_usdt, t.from_address)
 
 
 async def _deliver_confirmed(adapter: AdapterClient) -> None:

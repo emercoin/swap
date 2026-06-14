@@ -51,9 +51,11 @@ def main() -> None:
         r.raise_for_status()
         order = r.json()
         oid, deposit = order["order_id"], order["deposit_address"]
-        print(f"order {oid}: pay {args.amount} USDT → {deposit}")
+        # swap returns the EXACT tagged amount to pay — match is by amount now.
+        exact = order["amount_usdt"]
+        print(f"order {oid}: pay EXACTLY {exact} USDT → {deposit}")
 
-        pay(deposit, args.amount)  # send the test token from the payer
+        pay(deposit, exact)  # send the exact tagged amount from the payer
 
         print("polling order status (watcher needs ~confirmations + poll tick) ...")
         deadline = time.time() + args.timeout
