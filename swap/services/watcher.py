@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from .. import repository
@@ -39,8 +40,15 @@ async def run(stop: asyncio.Event) -> None:
     tron = TronGridClient()
     log.info("watcher started (poll=%ss, confirmations=%s)",
              POLL_INTERVAL_SECONDS, settings.confirmations_required)
+    last_aml_refresh = 0.0
     try:
         while not stop.is_set():
+            try:
+                if time.monotonic() - last_aml_refresh >= settings.aml_refresh_hours * 3600:
+                    await aml.load_blacklists()          # initial load + periodic refresh
+                    last_aml_refresh = time.monotonic()
+            except Exception:
+                log.exception("AML: blacklist load failed (screening continues with current list)")
             try:
                 await tick(adapter, tron)
             except Exception:  # never let one bad tick kill the loop
@@ -107,7 +115,7 @@ async def _scan_payments(tron: TronGridClient) -> None:
         senders = {t.from_address for t in transfers}
         blacklisted = None
         for sender in senders:
-            res = aml.screen(sender)
+            res = await aml.screen_full(sender, tron)
             await repository.record_aml_check(
                 order_id=order["id"], address=sender,
                 result="clear" if res.clear else "hit", source=res.source,

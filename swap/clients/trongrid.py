@@ -18,8 +18,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
+from bip_utils import Base58Decoder
 
 from ..config import settings
+
+# Dummy caller for read-only constant calls (the all-zero TRON address).
+_ZERO_ADDRESS_HEX = "410000000000000000000000000000000000000000"
+
+
+def _to_hex_address(addr: str) -> str:
+    """base58check TRON address → 41-prefixed 21-byte hex (node/ABI form)."""
+    return Base58Decoder.CheckDecode(addr).hex()
 
 
 @dataclass
@@ -92,6 +101,28 @@ class TronGridClient:
         resp = await self._client.post("/wallet/getnowblock")
         resp.raise_for_status()
         return resp.json()["block_header"]["raw_data"]["number"]
+
+    async def usdt_is_blacklisted(self, address: str) -> bool:
+        """Live Tether freeze check — USDT.isBlackListed(address) constant call.
+
+        The node derives the selector from the signature; `parameter` is the
+        ABI-encoded address (20 bytes, left-padded to 32). Raises on a missing
+        result (e.g. a testnet token that has no such function) so the caller can
+        decide how to treat an indeterminate answer.
+        """
+        body = {
+            "owner_address": _ZERO_ADDRESS_HEX,
+            "contract_address": _to_hex_address(settings.usdt_contract),
+            "function_selector": "isBlackListed(address)",
+            "parameter": _to_hex_address(address)[2:].rjust(64, "0"),
+        }
+        resp = await self._client.post("/wallet/triggerconstantcontract", json=body)
+        resp.raise_for_status()
+        data = resp.json()
+        result = data.get("constant_result")
+        if not result:
+            raise RuntimeError(f"isBlackListed returned no result: {data.get('result')}")
+        return int(result[0], 16) == 1
 
     async def aclose(self) -> None:
         await self._client.aclose()

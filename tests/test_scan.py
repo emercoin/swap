@@ -8,12 +8,16 @@ from swap.services import aml, watcher
 
 
 class FakeTron:
-    """Stand-in TronGrid: returns preset transfers per address."""
-    def __init__(self, by_address: dict[str, list[Trc20Transfer]]):
+    """Stand-in TronGrid: preset transfers per address + a set of frozen senders."""
+    def __init__(self, by_address: dict[str, list[Trc20Transfer]], frozen: set[str] | None = None):
         self._by = by_address
+        self._frozen = frozen or set()
 
     async def usdt_transfers_to(self, address, **_):
         return self._by.get(address, [])
+
+    async def usdt_is_blacklisted(self, address):
+        return address in self._frozen
 
 
 def _xfer(frm: str, amount: float, txid: str) -> Trc20Transfer:
@@ -54,13 +58,22 @@ async def test_overpayment_sums_transfers(fresh_db):
     assert (await repository.get_order(oid))["status"] == OrderStatus.OVERPAID
 
 
-async def test_blacklisted_sender_holds_even_if_exact(fresh_db, monkeypatch):
+async def test_ofac_sender_holds_even_if_exact(fresh_db, monkeypatch):
     monkeypatch.setattr(aml, "_blacklist", {"Tbad": "ofac"})
-    oid = await _awaiting_order(5.0, "Tdep4", "aml")
+    oid = await _awaiting_order(5.0, "Tdep4", "ofac")
     tron = FakeTron({"Tdep4": [_xfer("Tbad", 5.0, "tx4")]})
     await watcher._scan_payments(tron)
     order = await repository.get_order(oid)
     assert order["status"] == OrderStatus.AML_HOLD       # exact amount, but held
+
+
+async def test_tether_frozen_sender_holds(fresh_db, monkeypatch):
+    monkeypatch.setattr(aml, "_blacklist", {})           # clear OFAC list
+    oid = await _awaiting_order(5.0, "Tdep6", "tether")
+    # sender not in OFAC, but the live Tether check says frozen
+    tron = FakeTron({"Tdep6": [_xfer("Tfrozen", 5.0, "tx6")]}, frozen={"Tfrozen"})
+    await watcher._scan_payments(tron)
+    assert (await repository.get_order(oid))["status"] == OrderStatus.AML_HOLD
 
 
 async def test_deposit_is_recorded(fresh_db):

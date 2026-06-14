@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # callbacks
     callback_max_retries: int = 6
 
+    # AML
+    # OFAC sanctioned TRON addresses (per-chain list auto-built from the OFAC SDN).
+    aml_ofac_url: str = (
+        "https://raw.githubusercontent.com/0xB10C/"
+        "ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_TRX.txt"
+    )
+    aml_tether_check: bool = True        # live USDT.isBlackListed() per deposit
+    aml_refresh_hours: int = 6           # how often to reload the OFAC list
+
 
 @lru_cache
 def get_settings() -> Settings:

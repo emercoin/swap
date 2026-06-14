@@ -88,6 +88,7 @@ before they are wired into the watcher.
 > `awaiting_payment → confirmed → emc_delivered → notified`.
 > See `docs/TESTNET.md` for the runbook (`scripts/testnet/`).
 >
-> Still scaffolded (TODO): AML blacklist loading (`services/aml.load_blacklists`
-> — OFAC + Tether), USDT sweep / TRON tx signing (`services/sweep.py`), and the
+> AML is live: OFAC SDN addresses (TRON) loaded into memory + refreshed, and a
+> per-deposit live Tether `isBlackListed` check; a hit → `aml_hold` (no delivery).
+> Still scaffolded (TODO): USDT sweep / TRON tx signing (`services/sweep.py`) and
 > MCP transport-level auth.
