@@ -81,7 +81,13 @@ for local end-to-end you can bring up the node+adapter from `emercoin_docker`
 (`docker compose --profile dev up`). TRON parts are verified in the sandbox
 before they are wired into the watcher.
 
-> Status: **full happy path verified live end-to-end** (+ 27 unit tests). On
+> **Schema changes have no migrations.** `db.py` applies `schema.sql` with
+> `CREATE TABLE IF NOT EXISTS`, which does **not** alter an existing table. After
+> editing `schema.sql` in dev, reset the database: `rm swap.db` (then restart —
+> it recreates the schema — and re-run `scripts/register_service` since the
+> `services` table is wiped too). `swap.db` holds only local/test data.
+
+> Status: **full happy path verified live end-to-end** (+ 41 unit tests). On
 > 2026-06-14 a real run took a TRC20 USDT deposit on TRON **Nile testnet** →
 > `confirmed` → delivered real **EMC on Emercoin mainnet** (via the adapter
 > `/wallet/send`) → **signed callback** verified by the receiver against the
