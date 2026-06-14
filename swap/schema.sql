@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS orders (
     callback_url        TEXT NOT NULL,
     status              TEXT NOT NULL DEFAULT 'awaiting_payment',
     emc_txid            TEXT,                          -- set once delivered
+    delivery_attempts   INTEGER NOT NULL DEFAULT 0,    -- failed EMC sends (retry cap)
     expires_at          TEXT NOT NULL,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),

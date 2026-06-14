@@ -8,6 +8,15 @@ from swap.models import OrderStatus
 @pytest.fixture
 def deposit_addr(monkeypatch):
     monkeypatch.setattr(settings, "deposit_address", "TSharedDepositAddr")
+    monkeypatch.setattr(settings, "emc_reserve_check", False)   # off unless a test opts in
+
+
+class FakeAdapter:
+    def __init__(self, balance: float):
+        self._balance = balance
+
+    async def balance(self):
+        return {"balance": self._balance, "unconfirmed": 0}
 
 
 async def _service():
@@ -67,3 +76,30 @@ async def test_buy_emc_requires_deposit_address(fresh_db, monkeypatch):
     with pytest.raises(orders.OrderError):
         await orders.buy_emc(service_id=sid, amount_usdt=5.0,
                              destination_emc_address="E", callback_url="c", ref="x")
+
+
+async def test_reserve_rejects_when_low(fresh_db, deposit_addr, monkeypatch):
+    monkeypatch.setattr(settings, "emc_reserve_check", True)
+    sid = await _service()
+    with pytest.raises(orders.ReserveError):     # needs 50 EMC, wallet has 40
+        await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
+                             callback_url="c", ref="low", adapter=FakeAdapter(40))
+
+
+async def test_reserve_accounts_for_outstanding(fresh_db, deposit_addr, monkeypatch):
+    monkeypatch.setattr(settings, "emc_reserve_check", True)
+    sid = await _service()
+    # first order (50 EMC) succeeds; wallet 70 now owes 50 → only 20 free
+    await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
+                         callback_url="c", ref="a", adapter=FakeAdapter(70))
+    with pytest.raises(orders.ReserveError):     # second 50 EMC order can't be covered
+        await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
+                             callback_url="c", ref="b", adapter=FakeAdapter(70))
+
+
+async def test_reserve_allows_when_enough(fresh_db, deposit_addr, monkeypatch):
+    monkeypatch.setattr(settings, "emc_reserve_check", True)
+    sid = await _service()
+    resp = await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
+                                callback_url="c", ref="ok", adapter=FakeAdapter(1000))
+    assert resp.status == OrderStatus.AWAITING_PAYMENT

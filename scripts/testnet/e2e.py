@@ -48,6 +48,9 @@ def main() -> None:
             "callback_url": callback_url,
             "ref": ref,
         })
+        if r.status_code == 503:                     # reserve too low / adapter down
+            print("OUT OF SERVICE:", r.json().get("detail"))
+            return
         r.raise_for_status()
         order = r.json()
         oid, deposit = order["order_id"], order["deposit_address"]

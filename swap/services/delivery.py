@@ -42,9 +42,10 @@ async def deliver(order_id: int, adapter: AdapterClient) -> str:
             comment=f"swap order {order_id}",
         )
     except (AdapterError, httpx.HTTPError) as exc:
-        # Covers both adapter-level rejections (4xx/5xx) and the adapter being
-        # unreachable (connect/timeout) — either way the delivery did not happen.
+        # Covers both adapter-level rejections (4xx/5xx, e.g. insufficient funds)
+        # and the adapter being unreachable — either way delivery did not happen.
         log.error("EMC delivery failed for order %s: %s", order_id, exc)
+        await repository.increment_delivery_attempts(order_id)
         if status == OrderStatus.CONFIRMED:
             await repository.update_status(order_id, OrderStatus.DELIVER_FAILED)
         raise

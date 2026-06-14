@@ -7,16 +7,26 @@ that exact figure (per the terms, imprecise amounts are not tracked/refunded).
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+import httpx
+
 from . import repository
+from .clients.adapter import AdapterClient, AdapterError
 from .config import settings
 from .models import BuyEmcResponse, OrderStatus
+
+log = logging.getLogger("swap.orders")
 
 
 class OrderError(Exception):
     """Caller-facing validation error (maps to HTTP 400 / MCP error)."""
+
+
+class ReserveError(Exception):
+    """EMC reserve can't cover this order — service temporarily unavailable (503)."""
 
 
 def _iso(dt: datetime) -> str:
@@ -30,6 +40,7 @@ async def buy_emc(
     destination_emc_address: str,
     callback_url: str,
     ref: str,
+    adapter: AdapterClient | None = None,
 ) -> BuyEmcResponse:
     """Create (or return the existing, idempotent) order with a unique pay amount."""
     if amount_usdt < settings.min_usdt:
@@ -43,6 +54,10 @@ async def buy_emc(
     existing = await repository.find_order_by_ref(service_id, ref)
     if existing is not None:
         return _to_response(existing)
+
+    # Reserve pre-flight: never take USDT we can't deliver EMC for (out-of-service
+    # when the hot wallet, minus outstanding promises, can't cover this order).
+    await _check_reserve(round(amount_usdt * settings.emc_per_usdt, 8), adapter)
 
     base_units = round(amount_usdt * 1_000_000)
     expires_at = _iso(datetime.now(timezone.utc) + timedelta(minutes=settings.order_ttl_minutes))
@@ -78,6 +93,30 @@ async def buy_emc(
         )
 
     raise OrderError("could not allocate a unique payment amount; try again")
+
+
+async def _check_reserve(emc_amount: float, adapter: AdapterClient | None) -> None:
+    """Raise ReserveError unless the hot wallet, net of outstanding promises and a
+    buffer, can cover `emc_amount`. Inability to verify (adapter down) also fails
+    closed — we won't take money we can't honour."""
+    if not settings.emc_reserve_check:
+        return
+    created = adapter is None
+    if created:
+        adapter = AdapterClient()
+    try:
+        balance = float((await adapter.balance())["balance"])
+    except (AdapterError, httpx.HTTPError) as exc:
+        log.warning("reserve check failed (adapter unavailable): %s", exc)
+        raise ReserveError("cannot verify EMC reserve; service temporarily unavailable")
+    finally:
+        if created:
+            await adapter.aclose()
+
+    available = balance - await repository.outstanding_emc() - settings.emc_reserve_buffer
+    if available < emc_amount:
+        log.warning("EMC reserve too low: need %.8f, available %.8f", emc_amount, available)
+        raise ReserveError("insufficient EMC reserve; service temporarily unavailable")
 
 
 def _to_response(row) -> BuyEmcResponse:

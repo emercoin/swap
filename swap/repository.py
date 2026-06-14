@@ -118,6 +118,30 @@ async def update_status(order_id: int, new: OrderStatus) -> None:
     await conn.commit()
 
 
+async def outstanding_emc() -> float:
+    """EMC we've promised but not yet delivered (sum over live, undelivered orders).
+    Used to size the reserve pre-flight check so concurrent orders are accounted."""
+    conn = await get_conn()
+    cur = await conn.execute(
+        "SELECT COALESCE(SUM(emc_amount), 0) AS s FROM orders "
+        "WHERE emc_txid IS NULL AND status != ?",
+        (OrderStatus.EXPIRED,),
+    )
+    row = await cur.fetchone()
+    return float(row["s"] or 0)
+
+
+async def increment_delivery_attempts(order_id: int) -> None:
+    conn = await get_conn()
+    await conn.execute(
+        """UPDATE orders SET delivery_attempts = delivery_attempts + 1,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+            WHERE id = ?""",
+        (order_id,),
+    )
+    await conn.commit()
+
+
 async def set_emc_txid(order_id: int, txid: str) -> None:
     conn = await get_conn()
     await conn.execute(

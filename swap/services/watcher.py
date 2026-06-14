@@ -129,7 +129,13 @@ async def _scan_payments(tron: TronGridClient) -> None:
 
 
 async def _deliver_confirmed(adapter: AdapterClient) -> None:
-    for row in await repository.list_orders_by_status(OrderStatus.CONFIRMED):
+    """Deliver freshly confirmed orders, and retry `deliver_failed` ones (bounded)
+    so topping up a depleted EMC reserve auto-recovers stranded paid orders."""
+    due = list(await repository.list_orders_by_status(OrderStatus.CONFIRMED))
+    for row in await repository.list_orders_by_status(OrderStatus.DELIVER_FAILED):
+        if row["delivery_attempts"] < settings.delivery_max_retries:
+            due.append(row)
+    for row in due:
         try:
             await delivery.deliver(row["id"], adapter)
         except Exception:

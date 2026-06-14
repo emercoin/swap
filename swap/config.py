@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     confirmations_required: int = 19
     order_ttl_minutes: int = 30
 
+    # EMC reserve: refuse new orders we can't deliver (out-of-service when low).
+    emc_reserve_check: bool = True
+    emc_reserve_buffer: float = 0.0   # extra EMC kept above outstanding obligations
+    delivery_max_retries: int = 5     # deliver_failed retries before manual handling
+
     # callbacks
     callback_max_retries: int = 6
 

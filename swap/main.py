@@ -21,7 +21,7 @@ from . import db, repository
 from .auth import Service, require_service
 from .config import settings
 from .models import BuyEmcRequest, BuyEmcResponse, OrderResponse, OrderStatus
-from .orders import OrderError, buy_emc
+from .orders import OrderError, ReserveError, buy_emc
 from .services import watcher
 
 logging.basicConfig(level=logging.INFO)
@@ -75,6 +75,8 @@ async def post_buy_emc(
         )
     except OrderError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except ReserveError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 @app.get("/order/{order_id}", response_model=OrderResponse)
