@@ -45,6 +45,9 @@ _hits: dict[str, deque[float]] = defaultdict(deque)
 # one client holds open at once (an order can't outlive its TTL) without tracking
 # the client on each order row.
 _recent: dict[str, deque[float]] = defaultdict(deque)
+# Spent proof-of-work nonces → expiry epoch (anti-replay; pruned on use, bounded by
+# the challenge TTL so it stays small).
+_used_pow: dict[str, float] = {}
 
 
 # --- schemas ---------------------------------------------------------------
@@ -52,6 +55,14 @@ _recent: dict[str, deque[float]] = defaultdict(deque)
 class WebOrderRequest(BaseModel):
     amount_usdt: float = Field(..., gt=0, description="USDT to pay (within limits)")
     destination_emc_address: str = Field(..., description="your EMC address")
+    pow_challenge: str = Field("", description="challenge string from GET /web/challenge")
+    pow_solution: str = Field("", description="solved nonce for that challenge")
+
+
+class WebChallengeResponse(BaseModel):
+    enabled: bool = Field(..., description="whether a solution is required")
+    challenge: str
+    bits: int
 
 
 class WebOrderResponse(BaseModel):
@@ -154,6 +165,45 @@ def _concurrency_check(request: Request) -> None:
     recent.append(now)
 
 
+# --- proof of work ---------------------------------------------------------
+
+def _new_pow_challenge() -> tuple[str, int]:
+    """Mint a stateless hashcash challenge `nonce.ts.bits.sig` (sig = HMAC over the
+    rest with the web secret), so we can verify it later without storing it."""
+    bits = settings.web_pow_bits
+    payload = f"{secrets.token_hex(8)}.{int(time.time())}.{bits}"
+    sig = hmac.new(_web_service["callback_secret"].encode(), payload.encode(), sha256).hexdigest()[:16]
+    return f"{payload}.{sig}", bits
+
+
+def _verify_pow(challenge: str, solution: str) -> None:
+    """Reject unless `solution` is a valid hashcash answer to our own, unexpired,
+    not-yet-spent `challenge`. No-op when PoW is disabled."""
+    if not settings.web_pow_enabled:
+        return
+    try:
+        nonce, ts_s, bits_s, sig = challenge.split(".")
+        ts, bits = int(ts_s), int(bits_s)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid proof-of-work challenge")
+    payload = f"{nonce}.{ts}.{bits}"
+    expect = hmac.new(_web_service["callback_secret"].encode(), payload.encode(), sha256).hexdigest()[:16]
+    if not hmac.compare_digest(sig, expect):
+        raise HTTPException(status_code=400, detail="invalid proof-of-work challenge")
+    now = time.time()
+    if now - ts > settings.web_pow_ttl_seconds or ts - now > 60:
+        raise HTTPException(status_code=400, detail="proof-of-work challenge expired; retry")
+    for spent, exp in list(_used_pow.items()):     # prune, then reject replays
+        if exp < now:
+            del _used_pow[spent]
+    if nonce in _used_pow:
+        raise HTTPException(status_code=429, detail="proof-of-work already used; retry")
+    digest = sha256(f"{challenge}.{solution}".encode()).digest()
+    if int.from_bytes(digest, "big") >= (1 << (256 - bits)):
+        raise HTTPException(status_code=400, detail="invalid proof-of-work solution")
+    _used_pow[nonce] = ts + settings.web_pow_ttl_seconds
+
+
 # --- endpoints -------------------------------------------------------------
 
 @router.get("/config", response_model=WebConfigResponse)
@@ -166,6 +216,17 @@ async def web_config() -> WebConfigResponse:
     )
 
 
+@router.get("/challenge", response_model=WebChallengeResponse)
+async def web_challenge() -> WebChallengeResponse:
+    """Issue a proof-of-work challenge for the next order (empty when disabled)."""
+    if _web_service is None:
+        raise HTTPException(status_code=503, detail="web channel not ready")
+    if not settings.web_pow_enabled:
+        return WebChallengeResponse(enabled=False, challenge="", bits=0)
+    challenge, bits = _new_pow_challenge()
+    return WebChallengeResponse(enabled=True, challenge=challenge, bits=bits)
+
+
 @router.post("/order", response_model=WebOrderResponse)
 async def web_create_order(req: WebOrderRequest, request: Request) -> WebOrderResponse:
     """Public order creation: no key, rate-limited. One-way, exact amount, no
@@ -174,6 +235,7 @@ async def web_create_order(req: WebOrderRequest, request: Request) -> WebOrderRe
         raise HTTPException(status_code=503, detail="web channel not ready")
     _rate_check(request)
     _concurrency_check(request)
+    _verify_pow(req.pow_challenge, req.pow_solution)
     dest = req.destination_emc_address.strip()
     if not _EMC_ADDR.match(dest):
         raise HTTPException(status_code=400, detail="invalid EMC address")

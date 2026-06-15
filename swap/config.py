@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     web_rate_per_min: int = 6              # max order creations per client IP / min
     web_max_concurrent_per_ip: int = 5     # max orders one IP can hold open at once
     #                                        (approximated over the order-TTL window)
+    # Proof-of-work on public order creation — defense-in-depth vs distributed
+    # floods that beat IP limits (a botnet). The browser must solve a hashcash
+    # challenge from GET /web/challenge before POST /web/order is accepted, so each
+    # order costs ~2^bits hashes. Tune bits down if mobile clients are too slow.
+    web_pow_enabled: bool = True
+    web_pow_bits: int = 20                 # required leading zero bits (~2^bits hashes)
+    web_pow_ttl_seconds: int = 300         # how long an issued challenge stays valid
     serve_static: bool = False             # serve swap/site/ from the app (local dev;
     #                                        in prod Caddy serves the static corpus)
 

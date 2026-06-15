@@ -15,9 +15,21 @@ def web_env(monkeypatch):
     monkeypatch.setattr(settings, "deposit_address", "TSharedDepositAddr")
     monkeypatch.setattr(settings, "emc_reserve_check", False)
     monkeypatch.setattr(settings, "web_rate_per_min", 3)
+    monkeypatch.setattr(settings, "web_pow_enabled", False)   # on only in PoW tests
     web._hits.clear()
     web._recent.clear()
+    web._used_pow.clear()
     web._web_service = None
+
+
+def _solve(challenge: str, bits: int) -> str:
+    """Mirror the browser solver: find a nonce meeting the hashcash difficulty."""
+    import hashlib
+    target = 1 << (256 - bits)
+    sol = 0
+    while int.from_bytes(hashlib.sha256(f"{challenge}.{sol}".encode()).digest(), "big") >= target:
+        sol += 1
+    return str(sol)
 
 
 def _req(ip="1.2.3.4", xff=None):
@@ -105,6 +117,50 @@ async def test_concurrency_cap_per_ip(fresh_db, web_env, monkeypatch):
         await web.web_create_order(req, _req(ip="7.7.7.7"))
     assert e.value.status_code == 429
     await web.web_create_order(req, _req(ip="7.7.7.8"))   # a different IP is unaffected
+
+
+async def test_pow_required_when_enabled(fresh_db, web_env, monkeypatch):
+    monkeypatch.setattr(settings, "web_pow_enabled", True)
+    monkeypatch.setattr(settings, "web_pow_bits", 8)
+    await web.ensure_web_service()
+    req = web.WebOrderRequest(   # no proof of work supplied
+        amount_usdt=5.0, destination_emc_address="em1qamp64pg6ye8j6h2gszs6k0y7u3p9hkstcy65s6"
+    )
+    with pytest.raises(HTTPException) as e:
+        await web.web_create_order(req, _req())
+    assert e.value.status_code == 400
+
+
+async def test_pow_accepts_valid_solution_and_blocks_replay(fresh_db, web_env, monkeypatch):
+    monkeypatch.setattr(settings, "web_pow_enabled", True)
+    monkeypatch.setattr(settings, "web_pow_bits", 8)
+    await web.ensure_web_service()
+    challenge, bits = web._new_pow_challenge()
+    sol = _solve(challenge, bits)
+    req = web.WebOrderRequest(
+        amount_usdt=5.0, destination_emc_address="em1qamp64pg6ye8j6h2gszs6k0y7u3p9hkstcy65s6",
+        pow_challenge=challenge, pow_solution=sol,
+    )
+    resp = await web.web_create_order(req, _req())
+    assert resp.order_id > 0
+    # the same challenge can't be spent twice (anti-replay)
+    with pytest.raises(HTTPException) as e:
+        await web.web_create_order(req, _req())
+    assert e.value.status_code == 429
+
+
+async def test_pow_rejects_wrong_solution(fresh_db, web_env, monkeypatch):
+    monkeypatch.setattr(settings, "web_pow_enabled", True)
+    monkeypatch.setattr(settings, "web_pow_bits", 12)
+    await web.ensure_web_service()
+    challenge, _ = web._new_pow_challenge()
+    req = web.WebOrderRequest(
+        amount_usdt=5.0, destination_emc_address="em1qamp64pg6ye8j6h2gszs6k0y7u3p9hkstcy65s6",
+        pow_challenge=challenge, pow_solution="0",   # almost certainly not a valid 12-bit answer
+    )
+    with pytest.raises(HTTPException) as e:
+        await web.web_create_order(req, _req())
+    assert e.value.status_code == 400
 
 
 async def test_client_ip_prefers_forwarded_for(fresh_db, web_env):
