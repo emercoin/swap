@@ -1,10 +1,17 @@
 # swap on the public droplet — a separate stack that joins the emercoin_docker
 # network so it can reach the adapter (the shared EMC payout rail) by name.
 #
+# Deploy is pull-based, like edge/adapter: CI (.github/workflows/deploy.yml) tests,
+# builds and pushes ghcr.io/emercoin/swap:latest, then the droplet's Watchtower
+# (label-scoped, --interval 600) auto-pulls and recreates this container. No build
+# happens on the box and there is no inbound deploy channel.
+#
 #   # one-time: clone beside emer-ai-tools and create deploy/.env (chmod 600)
 #   git clone https://github.com/emercoin/swap /opt/swap
 #   cp /opt/swap/deploy/.env.droplet.example /opt/swap/deploy/.env  # then fill it
-#   cd /opt/swap && docker compose -f deploy/docker-compose.droplet.yaml --env-file deploy/.env up -d --build
+#   cd /opt/swap && docker compose -f deploy/docker-compose.droplet.yaml --env-file deploy/.env pull && \
+#     docker compose -f deploy/docker-compose.droplet.yaml --env-file deploy/.env up -d
+#   # thereafter Watchtower keeps it current; no manual step on each release.
 #
 # Caddy (in emer-ai-tools) fronts this: a swap.emercoin.com vhost reverse-proxies
 # to `swap:8002`. swap serves its own static (SWAP_SERVE_STATIC=true), so Caddy
@@ -21,9 +28,7 @@ volumes:
 
 services:
   swap:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    image: ghcr.io/emercoin/swap:latest    # built+pushed by CI; pulled by Watchtower
     container_name: swap
     env_file: .env
     environment:
@@ -35,4 +40,6 @@ services:
     networks:
       - emercoin_default
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"   # opt into Watchtower updates
     # No host port: Caddy reaches it over the docker network as `swap:8002`.
