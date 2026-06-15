@@ -104,10 +104,11 @@ environment before they are wired into the watcher.
 > is exact-amount, single-transfer payments (no auto under/overpaid). Collected
 > USDT is moved to treasury / off-ramp manually at low volume.
 > MCP exchanger: the keyless web on-ramp is also exposed as MCP tools (`buy_emc`,
-> `order_status`, `cancel_order`, `swap_config`) over Streamable HTTP at `/mcp`, so
+> `get_order_status`, `cancel_order`, `get_swap_config`) over Streamable HTTP at `/mcp`, so
 > an AI agent buys EMC with USDT directly — no key, no callback, same anti-spam as
 > the web channel. No auth by design: it's a public "pay for a service" on-ramp,
-> not an account.
+> not an account. Tool definitions pass a pre-publication TDQS review (all tier A);
+> see `docs/TDQS.md`.
 >
 > Deferred: USDT sweep / TRON tx signing (`services/sweep.py`, kept off the hot
 > path).

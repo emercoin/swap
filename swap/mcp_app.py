@@ -4,13 +4,17 @@ This mirrors the keyless public **web** channel (`swap/web.py`), not the keyed
 service-to-service API: an agent wanting EMC at its own address needs no account,
 no API key and no callback — exactly like a human on the web page. The agent calls
 `buy_emc` (amount + its EMC address), gets a shared deposit address and an EXACT
-amount to pay, then polls `order_status` by an opaque token until EMC is delivered.
+amount to pay, then polls `get_order_status` by an opaque token until EMC arrives.
 
 Backed by the same first-party "web" service row and `orders.buy_emc`, so it
 inherits the global awaiting cap and reserve pre-flight; per-IP rate/concurrency
 caps are reused from the web channel via the request's client IP. There is no
 browser-style proof-of-work here (the caller is a program, not a page) — the
 global cap and per-IP limits carry the anti-spam load.
+
+Tool definitions follow TDQS (verb_noun names, when/when-not + named siblings in
+each description, behavior hints in annotations, Pydantic return types for output
+schemas), so the surface scores well for agent tool-selection.
 
 Auth: none, by design — this is a public on-ramp ("pay for a service"), same as
 the web page; we don't make a buyer register to hand us USDT.
@@ -20,6 +24,7 @@ Transport: mounted into the FastAPI app as Streamable HTTP at `/mcp` (see
 """
 from __future__ import annotations
 
+import inspect
 from contextlib import contextmanager
 from typing import Annotated, Iterator
 
@@ -30,6 +35,7 @@ from pydantic import Field
 
 from . import db, web
 from .config import settings
+from .web import WebConfigResponse, WebOrderResponse, WebStatusResponse
 
 # DNS-rebinding protection guards browser-driven localhost servers; here the edge
 # (Caddy/Cloudflare) terminates and validates Host, and the audience is server-side
@@ -41,9 +47,10 @@ _security = TransportSecuritySettings(
 mcp = FastMCP(
     "swap",
     instructions=(
-        "Buy EMC with USDT (TRC20). Call swap_config for the limits, then buy_emc "
-        "with the USDT amount and your EMC address; pay the EXACT returned amount to "
-        "the deposit address (one-way, no refunds), then poll order_status by token."
+        "Buy EMC with USDT (TRC20), no account needed. Flow: get_swap_config for the "
+        "limits/rate → buy_emc with the USDT amount and your EMC address → send the "
+        "EXACT returned amount to the deposit address (one-way, no refunds) → poll "
+        "get_order_status by token until 'notified'. cancel_order drops an unpaid order."
     ),
     stateless_http=True,
     json_response=True,
@@ -51,6 +58,25 @@ mcp = FastMCP(
 )
 # Mounted under /mcp in the FastAPI app, so the endpoint itself sits at the mount root.
 mcp.settings.streamable_http_path = "/"
+
+
+def tool(**kwargs):
+    """Like `mcp.tool`, but derive the tool description from the function's docstring
+    run through `inspect.cleandoc` — so the published description has no leading
+    docstring indentation (cleaner for clients / TDQS) while the docstring stays the
+    single source of truth in the source."""
+    def decorate(fn):
+        if "description" not in kwargs and fn.__doc__:
+            kwargs["description"] = inspect.cleandoc(fn.__doc__)
+        return mcp.tool(**kwargs)(fn)
+    return decorate
+
+
+# Param descriptions reused across tools (the token is the only handle to an order).
+_TOKEN = Annotated[
+    str,
+    Field(description="opaque order handle returned by buy_emc; pass it back unchanged"),
+]
 
 
 @contextmanager
@@ -84,63 +110,91 @@ class _NoRequest:
     client = None
 
 
-@mcp.tool()
-async def swap_config() -> dict:
-    """The current limits so you can pick a valid amount: min/max USDT per order and
-    the fixed EMC-per-USDT rate (EMC delivered = amount_usdt × emc_per_usdt)."""
-    return {
-        "min_usdt": settings.min_usdt,
-        "max_usdt": settings.max_usdt,
-        "emc_per_usdt": settings.emc_per_usdt,
-    }
+@tool(
+    title="Get EMC swap limits and rate",
+    annotations={"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
+)
+async def get_swap_config() -> WebConfigResponse:
+    """Return the current order limits and fixed rate for buying EMC with USDT:
+    min/max USDT per order and emc_per_usdt (EMC you receive = amount_usdt ×
+    emc_per_usdt). Call this first to choose a valid amount for buy_emc. Read-only —
+    it neither creates nor changes an order."""
+    return WebConfigResponse(
+        min_usdt=settings.min_usdt,
+        max_usdt=settings.max_usdt,
+        emc_per_usdt=settings.emc_per_usdt,
+    )
 
 
-@mcp.tool()
+@tool(
+    title="Buy EMC with USDT (open an order)",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
 async def buy_emc(
     ctx: Context,
-    amount_usdt: Annotated[float, Field(gt=0, description="USDT to pay (within min/max from swap_config)")],
-    destination_emc_address: Annotated[str, Field(description="your EMC address to receive EMC")],
-) -> dict:
-    """Open an order to buy EMC with USDT. Returns a shared TRON deposit address and
-    an EXACT `amount_usdt` to send (TRC20) — pay that figure precisely; it is your
-    order's tag (a wrong amount cannot be matched and is not refunded). On confirmed
-    payment, EMC (amount_usdt × rate) is delivered to your address. Keep the returned
-    `token` and poll `order_status`. No key, no callback; one-way."""
+    amount_usdt: Annotated[
+        float, Field(gt=0, description="USDT to pay; must be within min/max from get_swap_config")
+    ],
+    destination_emc_address: Annotated[
+        str, Field(description="your EMC address to receive EMC (legacy 'E…' or bech32 'em1…')")
+    ],
+) -> WebOrderResponse:
+    """Open an order to buy EMC with USDT (TRC20) and get back a shared TRON
+    `deposit_address` plus the EXACT `amount_usdt` to send. This does NOT move funds:
+    you then transfer that exact figure (it is your order's matching tag) to the
+    deposit address; on confirmed payment, EMC (amount_usdt × rate) is delivered to
+    your address automatically. Keep the returned `token` and poll get_order_status
+    until 'notified'; to abandon before paying, call cancel_order. One-way — a wrong
+    amount cannot be matched and is NOT refunded. Each call opens a NEW order (not
+    idempotent). Use get_swap_config first to pick a valid amount."""
     await _ready()
     with _as_tool_error():
-        resp = await web.create_public_order(
+        return await web.create_public_order(
             amount_usdt,
             destination_emc_address,
             _request(ctx) or _NoRequest(),
             enforce_pow=False,
         )
-    return resp.model_dump(mode="json")
 
 
-@mcp.tool()
-async def order_status(
-    token: Annotated[str, Field(description="the token returned by buy_emc")],
-) -> dict:
-    """Current status of your order (poll until `notified`/`emc_delivered`). Returns
-    the status, the exact amount, the EMC amount and address, and the EMC txid once
-    delivered."""
+@tool(
+    title="Get EMC order status",
+    annotations={"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
+)
+async def get_order_status(token: _TOKEN) -> WebStatusResponse:
+    """Return the current status of a buy_emc order by its `token`: the status, the
+    exact amount, the EMC amount and destination address, and the `emc_txid` once
+    delivered. Use this to poll after buy_emc — status progresses awaiting_payment →
+    confirmed → emc_delivered → notified (done). Read-only; to cancel an unpaid order
+    use cancel_order instead."""
     await _ready()
     with _as_tool_error():
-        resp = await web.web_order_status(token)
-    return resp.model_dump(mode="json")
+        return await web.web_order_status(token)
 
 
-@mcp.tool()
-async def cancel_order(
-    token: Annotated[str, Field(description="the token returned by buy_emc")],
-) -> dict:
-    """Drop an unpaid order early (frees its slot ahead of expiry). Only works while
-    it is still awaiting payment; once a payment is in flight it is too late. A
-    payment sent after cancellation matches nothing and is not refunded."""
+@tool(
+    title="Cancel an unpaid EMC order",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def cancel_order(token: _TOKEN) -> WebStatusResponse:
+    """Cancel a still-unpaid buy_emc order by its `token`, expiring it now and freeing
+    its slot ahead of the TTL. Use this only before you pay; once a payment is in
+    flight or confirmed it is too late and this errors. A payment sent after
+    cancellation matches nothing and is NOT refunded. To only inspect an order without
+    changing it, use get_order_status."""
     await _ready()
     with _as_tool_error():
-        resp = await web.web_cancel_order(token)
-    return resp.model_dump(mode="json")
+        return await web.web_cancel_order(token)
 
 
 if __name__ == "__main__":

@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     emc_reserve_buffer: float = 0.0   # extra EMC kept above outstanding obligations
     delivery_max_retries: int = 5     # deliver_failed retries before manual handling
 
+    # Reserve monitor: proactive balance log + low-reserve alert. The pre-flight
+    # above is reactive (a buyer hits a 503 once the wallet is short); this logs the
+    # hot-wallet EMC balance and outstanding obligations on a cadence and WARNs while
+    # the available headroom is below the watermark, so the operator tops up before
+    # going out of service. Default watermark ≈ 3 max-size orders of runway.
+    reserve_monitor_enabled: bool = True
+    reserve_monitor_interval_minutes: int = 15
+    reserve_low_watermark: float = 300.0   # EMC; warn while available drops below this
+
     # callbacks
     callback_max_retries: int = 6
 

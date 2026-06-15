@@ -25,6 +25,7 @@ from ..clients.trongrid import TronGridClient
 from ..config import settings
 from ..models import OrderStatus
 from . import aml, callback, delivery
+from .monitor import ReserveMonitor
 
 log = logging.getLogger("swap.watcher")
 
@@ -35,6 +36,7 @@ async def run(stop: asyncio.Event) -> None:
     """Main loop; cancel by setting `stop`."""
     adapter = AdapterClient()
     tron = TronGridClient()
+    monitor = ReserveMonitor()
     log.info("watcher started (poll=%ss, confirmations=%s)",
              POLL_INTERVAL_SECONDS, settings.confirmations_required)
     last_aml_refresh = 0.0
@@ -50,6 +52,11 @@ async def run(stop: asyncio.Event) -> None:
                 await tick(adapter, tron)
             except Exception:  # never let one bad tick kill the loop
                 log.exception("watcher tick failed")
+            if settings.reserve_monitor_enabled:
+                try:
+                    await monitor.run_if_due(adapter)   # proactive balance log + low-reserve alert
+                except Exception:
+                    log.exception("reserve monitor failed")
             await _sleep_or_stop(stop, POLL_INTERVAL_SECONDS)
     finally:
         await adapter.aclose()
