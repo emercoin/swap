@@ -8,6 +8,7 @@ COPY pyproject.toml ./
 RUN pip install --upgrade pip && pip install .
 
 COPY swap ./swap
+COPY scripts ./scripts
 
 EXPOSE 8002
 CMD ["uvicorn", "swap.main:app", "--host", "0.0.0.0", "--port", "8002"]
