@@ -1,12 +1,12 @@
 """MCP surface for swap — so an agent with USDT pays programmatically.
 
-Target audience is AI agents (§1b): an agent holding USDT calls `buy_emc`
+Target audience is AI agents: an agent holding USDT calls `buy_emc`
 directly, no human in the loop. Same two operations as REST, exposed as MCP
-tools over a thin FastMCP server (mirrors the emercoin gateway's mcp pattern).
+tools over a thin FastMCP server.
 
-Auth: the calling service's API key is passed as a tool argument here for the
-skeleton; production should carry it in the transport (header / OAuth) like the
-gateway's remote MCP server rather than as a visible parameter.
+Auth: the calling service's API key is passed as a tool argument here;
+production should carry it in the transport (header / OAuth) rather than as a
+visible parameter.
 
 Run standalone (stdio):  `python -m swap.mcp_app`
 """

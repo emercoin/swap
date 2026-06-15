@@ -1,4 +1,4 @@
-"""Order state machine — the allowed transitions of §5.
+"""Order state machine — the allowed order transitions.
 
 Centralised so every status change goes through `assert_transition`; an illegal
 move (e.g. delivering EMC twice) raises instead of silently corrupting an order.

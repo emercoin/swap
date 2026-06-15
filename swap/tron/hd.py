@@ -20,7 +20,7 @@ _CHANGE = 0  # external chain
 
 @lru_cache
 def _account_ctx():
-    # Imported lazily so the package imports without bip_utils present (skeleton).
+    # Imported lazily so the package imports without bip_utils present.
     from bip_utils import Bip39SeedGenerator, Bip44, Bip44Changes, Bip44Coins
 
     if not settings.tron_mnemonic:

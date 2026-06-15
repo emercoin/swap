@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="swap — EMC cashier",
     version="0.1.0",
-    description="USDT (TRC20) in → EMC out → signed callback. A dumb till.",
+    description="USDT (TRC20) in → EMC out → signed callback.",
     lifespan=lifespan,
 )
 

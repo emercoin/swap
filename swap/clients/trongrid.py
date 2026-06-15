@@ -1,6 +1,6 @@
 """TronGrid client — the watcher's source of TRC20 deposits.
 
-Verified against the live mainnet API (read-only) before wiring in. Key finding:
+Verified against the live mainnet API (read-only) before wiring in. Note:
 querying transfers with `only_confirmed=true` returns **only transfers in a
 solidified (irreversible) block**, i.e. TRON finality (~19-block window) is
 enforced server-side. So the watcher treats every transfer this returns as
@@ -11,7 +11,7 @@ Response shape (GET /v1/accounts/{addr}/transactions/trc20):
             token_info.{decimals, address, symbol}}
     meta.{fingerprint, links.next, page_size}   # pagination
 
-Start: TronGrid public API. Later: own TRON node for independence (§6).
+Start: TronGrid public API. Later: own TRON node for independence.
 """
 from __future__ import annotations
 

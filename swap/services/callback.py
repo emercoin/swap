@@ -1,7 +1,7 @@
 """Signed callback notifier + retries.
 
 The signature is what stops a forged 'paid' from buying a free service, so it is
-mandatory. Scheme (decided §8): **HMAC-SHA256** over the exact JSON body using
+mandatory. Scheme: **HMAC-SHA256** over the exact JSON body using
 the calling service's `callback_secret`. We send:
 
     POST {callback_url}

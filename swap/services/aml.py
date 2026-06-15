@@ -1,7 +1,7 @@
 """AML screening of the incoming sender address.
 
-This is NOT a formality: a 'dirty' USDT deposit can be frozen by Tether right on
-our address, so screening protects working capital (§3). Two sources:
+Screening is mandatory: a tainted USDT deposit can be frozen by Tether directly
+on our address, so screening protects working capital. Two sources:
   - **OFAC SDN** — a finite published list of sanctioned addresses, loaded into
     memory (`load_blacklists`) and refreshed periodically. Pure in-memory lookup.
   - **Tether freeze** — checked **live** per deposit via the USDT contract's

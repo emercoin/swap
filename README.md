@@ -1,7 +1,7 @@
 # swap — EMC cashier (USDT → EMC)
 
-A **dumb till** with one primitive. All business logic stays in the calling
-services; swap knows nothing about NVS/DNS/subscriptions.
+A minimal cashier exposing one primitive. All business logic stays in the
+calling services; swap knows nothing about NVS/DNS/subscriptions.
 
 ```
 buy_emc(amount_usdt, destination_emc_address, callback_url, ref)
@@ -13,8 +13,6 @@ buy_emc(amount_usdt, destination_emc_address, callback_url, ref)
 `destination` is opaque to swap: it can be a **service's** address (the service
 then renders its own product on that EMC — the user only ever pays USDT and
 never touches a wallet) or the **user's own** address (raw on-ramp).
-
-See [`FOR_CLAUDE_TODO.md`](./FOR_CLAUDE_TODO.md) for the full design rationale.
 
 ## Locked decisions
 
@@ -80,8 +78,8 @@ uv run uvicorn swap.main:app --reload --port 8002
 
 EMC delivery and the TRON watcher need the emercoin adapter and TronGrid creds;
 for local end-to-end you can bring up the node+adapter from `emercoin_docker`
-(`docker compose --profile dev up`). TRON parts are verified in the sandbox
-before they are wired into the watcher.
+(`docker compose --profile dev up`). TRON parts are verified in a test
+environment before they are wired into the watcher.
 
 > **Schema changes have no migrations.** `db.py` applies `schema.sql` with
 > `CREATE TABLE IF NOT EXISTS`, which does **not** alter an existing table. After

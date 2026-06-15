@@ -8,9 +8,9 @@ One periodic loop drives every awaiting order through:
 plus the off-happy-path branches (underpaid / overpaid / aml_hold / expired).
 Each stage is idempotent and persisted, so a crash mid-pipeline resumes safely.
 
-This orchestration is scaffolded: the TRON-facing reads (TronGridClient) are
-NotImplemented until verified in the sandbox (§7.3). Delivery, callback signing
-and the state machine below are real.
+The TRON-facing reads (TronGridClient) are not yet implemented, pending
+validation against a test environment. Delivery, callback signing and the state
+machine below are complete.
 """
 from __future__ import annotations
 

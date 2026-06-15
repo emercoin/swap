@@ -1,7 +1,7 @@
 [project]
 name = "emercoin-swap"
 version = "0.1.0"
-description = "swap — EMC cashier: USDT (TRC20) in, EMC out to a destination address, signed callback. A dumb till; all business logic lives in the calling services."
+description = "swap — EMC cashier: USDT (TRC20) in, EMC out to a destination address, signed callback. All business logic lives in the calling services."
 # 3.12/3.13 only: the native deps (pydantic-core, coincurve via bip-utils) have
 # no stable wheels for 3.14, and 3.14 is still alpha — pin a release interpreter.
 requires-python = ">=3.12,<3.14"
