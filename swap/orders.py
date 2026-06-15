@@ -74,7 +74,9 @@ async def buy_emc(
     base_units = round(amount_usdt * 1_000_000)
     expires_at = _iso(datetime.now(timezone.utc) + timedelta(minutes=settings.order_ttl_minutes))
 
-    # Probe successive amount tags until one is globally unique.
+    # Probe amount tags upward from the requested figure, taking the first one not
+    # held by an ACTIVE order (idx_orders_active_amount). Terminal orders release
+    # their tag, so this reuses the smallest free figure rather than creeping up.
     for k in range(settings.tag_max_tries):
         pay_units = base_units + k * settings.tag_step_units
         pay_amount = round(pay_units / 1_000_000, 6)

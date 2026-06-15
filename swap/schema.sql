@@ -14,14 +14,20 @@ CREATE TABLE IF NOT EXISTS services (
 );
 
 -- Orders: one buy_emc request. Payments land on the single shared deposit
--- address and are matched by `amount_usdt` — a unique per-order amount tag (the
--- exact figure the buyer must pay). Globally UNIQUE so a paid amount maps to at
--- most one order and tags are never reused (no late-payment ambiguity).
+-- address and are matched by `amount_usdt` — a per-order amount tag (the exact
+-- figure the buyer must pay). The tag must be unique only among orders that can
+-- still receive/await a matching payment, so the partial unique index below
+-- (idx_orders_active_amount) enforces uniqueness over ACTIVE statuses only.
+-- Terminal orders (notified/expired/underpaid/overpaid) release their tag, so the
+-- allocator (orders.buy_emc) reuses the smallest free figure instead of creeping
+-- upward forever. Trade-off: a late/duplicate payment to a recycled tag matches
+-- whoever currently holds it — acceptable at our scale, and late payments are
+-- already "unmatched, not refunded" per the offer.
 CREATE TABLE IF NOT EXISTS orders (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     service_id          INTEGER NOT NULL REFERENCES services(id),
     ref                 TEXT NOT NULL,                 -- caller's invoice id
-    amount_usdt         REAL NOT NULL UNIQUE,          -- EXACT amount to pay (tagged)
+    amount_usdt         REAL NOT NULL,                 -- EXACT amount to pay (tagged)
     emc_amount          REAL NOT NULL,                 -- amount_usdt * rate snapshot
     destination_emc     TEXT NOT NULL,
     callback_url        TEXT NOT NULL,
@@ -36,6 +42,11 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_amount ON orders(amount_usdt);
+-- At most one ACTIVE order per amount tag (awaiting or mid-settlement). Terminal
+-- orders are excluded, so their tags become free for reuse. This is what keeps the
+-- matcher unambiguous (one awaiting order per amount) while allowing tag recycling.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_active_amount ON orders(amount_usdt)
+    WHERE status IN ('awaiting_payment', 'confirmed', 'deliver_failed', 'aml_hold', 'emc_delivered');
 
 -- Deposits: confirmed TRC20 transfers seen on the shared deposit address.
 -- order_id is NULL for an UNMATCHED payment (amount matched no open order) — kept

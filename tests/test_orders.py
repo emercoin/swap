@@ -56,6 +56,34 @@ async def test_buy_emc_is_idempotent_on_ref(fresh_db, deposit_addr):
     assert a.order_id == b.order_id and a.amount_usdt == b.amount_usdt
 
 
+async def test_tag_reused_after_order_terminal(fresh_db, deposit_addr):
+    """A terminal (e.g. expired) order releases its amount tag, so the next order
+    reuses the smallest free figure instead of creeping upward forever."""
+    sid = await _service()
+    a = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="r1")
+    b = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="r2")
+    assert (a.amount_usdt, b.amount_usdt) == (5.0, 5.000001)   # both active → b bumped
+
+    await repository.update_status(a.order_id, OrderStatus.EXPIRED)   # frees the 5.0 tag
+    c = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="r3")
+    assert c.amount_usdt == 5.0          # smallest free tag reused, NOT 5.000002
+
+
+async def test_active_order_keeps_its_tag_reserved(fresh_db, deposit_addr):
+    """A paid-but-undelivered (active, non-terminal) order must NOT release its tag,
+    or a duplicate payment could be mis-matched."""
+    sid = await _service()
+    a = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="r1")
+    await repository.update_status(a.order_id, OrderStatus.CONFIRMED)   # active, mid-settlement
+    b = await orders.buy_emc(service_id=sid, amount_usdt=5.0,
+                             destination_emc_address="E", callback_url="c", ref="r2")
+    assert b.amount_usdt == 5.000001     # 5.0 still held by the confirmed order
+
+
 async def test_buy_emc_enforces_cap(fresh_db, deposit_addr):
     sid = await _service()
     with pytest.raises(orders.OrderError):
