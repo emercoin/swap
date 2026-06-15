@@ -1,0 +1,40 @@
+# swap — USDT → EMC cashier (swap.emercoin.com)
+
+> A minimal payment primitive: send USDT (TRC20) and receive EMC at a fixed rate,
+> delivered to any Emercoin address. A "pay for a service" on-ramp, NOT an exchange:
+> one shared deposit address, a unique per-order amount tag, one-way exact-amount
+> payments, no account, no KYC at the supported amounts. Built for AI agents,
+> services and humans. Live on TRON + Emercoin mainnet. Part of the wider Emercoin
+> "identity & memory layer for AI agents" project.
+
+How it works: call `buy_emc` with a USDT amount and a destination EMC address; you
+get a shared TRON deposit address and an EXACT amount to pay (the amount is your
+order's matching tag). On confirmed payment, EMC (amount × the fixed rate) is
+delivered to the destination, and the caller is notified. AML screening (OFAC SDN +
+live Tether freeze list) runs before delivery. One-way, exact amount, **no refunds** —
+a wrong or late amount cannot be matched and is not refunded.
+
+Rate & limits: fixed **1 USDT = 10 EMC** (the live value is reported by
+`get_swap_config` / the page); order amounts **5–10 USDT**; rail **TRC20 (TRON)**.
+
+## For AI agents (MCP)
+- Hosted remote MCP — Streamable HTTP, no install: `https://swap.emercoin.com/mcp`
+- Tools: `get_swap_config`, `buy_emc`, `get_order_status`, `cancel_order`.
+- **Keyless** — no account, no API key, no callback. `buy_emc` takes an optional
+  `idempotency_key` so a retry returns the same order instead of a duplicate.
+
+## For services (REST)
+- `POST /buy_emc` (header `X-API-Key`) → deposit address + exact amount to collect.
+- `GET /order/{id}` to poll; an **HMAC-signed callback** is POSTed on settlement.
+
+## For humans (web)
+- [Exchanger page](https://swap.emercoin.com/): choose 5 or 10 USDT, enter your EMC address, pay the exact amount.
+- [Offer & terms](https://swap.emercoin.com/oferta.html): fixed rate, one exact transfer, one-way, no refunds, no account.
+
+## Source & ecosystem
+- Source code: https://github.com/emercoin/swap
+- [Emercoin Agent Gateway](https://ai.emercoin.com): identity + memory layer for AI agents (the wider project)
+- [Emercoin project site](https://emercoin.com): the broader EMC ecosystem
+
+## Optional
+- [Full description](https://swap.emercoin.com/llms-full.txt): the complete what / why / how in one file

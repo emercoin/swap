@@ -1,0 +1,74 @@
+# swap — full description
+# Source: https://swap.emercoin.com/llms.txt
+
+## What swap is
+
+swap (swap.emercoin.com) is a minimal cashier exposing one primitive: take USDT
+(TRC20) and deliver EMC (Emercoin's coin) at a fixed rate to a destination Emercoin
+address. It is positioned as **"pay for a service"**, not as an exchange: there is no
+order book, no quoting, no account, and no KYC at the supported amounts. The operator
+accepts personal liability; amounts are deliberately small.
+
+The destination address is opaque to swap: it can be a **service's** own address (so
+the service renders its product on that EMC and its users only ever pay USDT, never
+touching a wallet), or the **user's own** address (a raw on-ramp).
+
+## The primitive
+
+    buy_emc(amount_usdt, destination_emc_address) ->
+        a shared TRON deposit address + an EXACT amount of USDT to pay
+        -> on confirmed payment, deliver EMC (amount × rate) to the destination
+        -> notify the caller (signed callback for services; the page/agent polls)
+
+- Rate: fixed **1 USDT = 10 EMC** (the live value is returned by get_swap_config).
+- Order amounts: **5–10 USDT** (below ~5, TRON gas dominates).
+- Rail: **USDT TRC20 on TRON**; EMC delivered on Emercoin mainnet.
+- Settlement waits for TRON finality (~19 confirmations).
+
+## How payments are matched (and why)
+
+All buyers pay to **one shared deposit address**; each order is identified by a
+**unique per-order amount tag** — the buyer pays an exact figure such as 5.000001,
+and the watcher matches the incoming transfer by that exact amount. This was chosen
+over a fresh deposit address per order because TRON is account-based: sweeping many
+addresses costs $2–4 of TRX each and a transfer to a fresh address costs ~2× gas,
+penalising every first-time buyer. The tag is unique only among active orders, so a
+completed/expired order frees its figure for reuse.
+
+Consequence, stated in the offer: payments are **one-way, exact-amount, single
+transfer, with NO refunds**. An amount that matches no open order (wrong figure, or a
+payment after the order expired) is recorded but not attributed and not refunded.
+
+## Compliance (AML)
+
+Before any EMC is delivered, the sender's TRON address is screened against the OFAC
+SDN sanctioned-address list (refreshed periodically) and Tether's live on-chain
+freeze list (USDT isBlackListed). A hit puts the order on hold; no delivery.
+
+## Three ways to use it
+
+1. **MCP (AI agents)** — a keyless MCP exchanger over Streamable HTTP at
+   https://swap.emercoin.com/mcp. Tools: get_swap_config (limits + rate), buy_emc
+   (open an order; optional idempotency_key for safe retries), get_order_status (poll
+   by token), cancel_order (drop an unpaid order). No account, no API key, no
+   callback — an agent holding USDT buys EMC directly.
+
+2. **REST (services)** — POST /buy_emc with an X-API-Key returns the deposit address
+   and exact amount; GET /order/{id} polls; on settlement swap POSTs an HMAC-signed
+   callback the service verifies with its per-service secret. Idempotent by
+   (service, ref).
+
+3. **Web (humans)** — an exchanger page (choose 5 or 10 USDT, enter an EMC address,
+   pay the exact amount, watch it settle) and an offer/terms page. No login.
+
+## Where it fits
+
+swap is part of the wider effort to use **Emercoin as an identity and memory layer
+for AI agents** (see https://ai.emercoin.com). Emercoin is a public blockchain (live
+since 2013) whose flagship feature is NVS (Name-Value Storage), powering EmerDNS,
+EmerSSL and EmerSSH. swap is the payment on-ramp that lets agents and services
+acquire EMC to use that layer.
+
+- Source code: https://github.com/emercoin/swap
+- Agent gateway: https://ai.emercoin.com
+- Emercoin ecosystem: https://emercoin.com

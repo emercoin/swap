@@ -1,0 +1,22 @@
+# swap.emercoin.com — a USDT (TRC20) → EMC cashier for services, AI agents and
+# humans, part of the Emercoin "identity & memory layer for AI agents" project.
+# Search engines and AI agents are welcome.
+User-agent: *
+Allow: /
+
+# AI crawlers explicitly welcome to read the site + the agent corpus (llms.txt).
+User-agent: GPTBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: anthropic-ai
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://swap.emercoin.com/sitemap.xml
+# Agent corpus index (llmstxt.org): https://swap.emercoin.com/llms.txt
