@@ -30,8 +30,10 @@ from typing import Annotated, Iterator
 
 from fastapi import HTTPException
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
+from starlette.routing import Route
 
 from . import db, web
 from .config import settings
@@ -56,8 +58,19 @@ mcp = FastMCP(
     json_response=True,
     transport_security=_security,
 )
-# Mounted under /mcp in the FastAPI app, so the endpoint itself sits at the mount root.
-mcp.settings.streamable_http_path = "/"
+def streamable_routes() -> list[Route]:
+    """Routes serving the MCP Streamable HTTP endpoint at exactly `/mcp` and `/mcp/`.
+
+    Registered directly on the main app's router (not `app.mount("/mcp", …)`): a
+    prefix mount makes the canonical no-trailing-slash URL `/mcp` 307-redirect to
+    `/mcp/` (and, with the Starlette wrapper, 405) — and several MCP clients (incl.
+    MCP Inspector) POST to `/mcp` without the slash and don't follow the redirect, so
+    they fail to connect. Two explicit routes pointing at the same bare ASGI handler
+    make both forms return 200. The session manager is created here (lazily via
+    `streamable_http_app`) and driven from the app lifespan."""
+    mcp.streamable_http_app()                      # lazily build the session manager
+    asgi = StreamableHTTPASGIApp(mcp.session_manager)
+    return [Route(path, endpoint=asgi) for path in ("/mcp", "/mcp/")]
 
 
 def tool(**kwargs):

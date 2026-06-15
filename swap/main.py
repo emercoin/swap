@@ -119,11 +119,13 @@ async def get_order(
 
 
 # MCP exchanger surface for AI agents (keyless, mirrors /web): Streamable HTTP at
-# /mcp. Mounted before the static "/" mount so it isn't shadowed. The session
-# manager is driven from the lifespan above; Caddy already proxies all of swap:8002,
-# so this is reachable at swap.emercoin.com/mcp with no edge change.
+# /mcp. Registered as explicit routes (not app.mount) so both /mcp and /mcp/ return
+# 200 — see mcp_app.streamable_routes. Added before the static "/" mount so it isn't
+# shadowed. The session manager is driven from the lifespan above; Caddy already
+# proxies all of swap:8002, so this is reachable at swap.emercoin.com/mcp with no
+# edge change.
 if settings.mcp_enabled:
-    app.mount("/mcp", mcp_app.mcp.streamable_http_app())
+    app.router.routes.extend(mcp_app.streamable_routes())
 
 
 # Static site (exchanger page + offer). In production Caddy serves swap/site and

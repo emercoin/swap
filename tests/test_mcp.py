@@ -91,15 +91,18 @@ async def test_per_ip_concurrency_cap_shared_with_web(fresh_db, mcp_env, monkeyp
 
 # --- transport: Streamable HTTP mounted at /mcp ----------------------------
 
-def _mcp_call(client, method, params=None):
+def _mcp_call(client, method, params=None, path="/mcp"):
     body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
     r = client.post(
-        "/mcp/",
+        path,
         json=body,
         headers={"Accept": "application/json, text/event-stream"},
+        follow_redirects=False,
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 200, f"{path} -> {r.status_code}: {r.text}"
     return r.json()
+
+
 
 
 async def test_streamable_http_transport(fresh_db, mcp_env, monkeypatch):
@@ -109,6 +112,12 @@ async def test_streamable_http_transport(fresh_db, mcp_env, monkeypatch):
     monkeypatch.setattr(main, "RUN_WATCHER", False)   # no network/watcher in tests
 
     with TestClient(main.app) as client:
+        # Canonical /mcp (no trailing slash) and /mcp/ both serve 200 directly — no
+        # 307/405. MCP Inspector and other clients POST to /mcp without the slash.
+        for path in ("/mcp", "/mcp/"):
+            ok = _mcp_call(client, "tools/list", path=path)
+            assert "buy_emc" in {t["name"] for t in ok["result"]["tools"]}
+
         listed = _mcp_call(client, "tools/list")
         tools = {t["name"]: t for t in listed["result"]["tools"]}
         assert {"get_swap_config", "buy_emc", "get_order_status", "cancel_order"} <= set(tools)
