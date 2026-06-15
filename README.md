@@ -14,6 +14,40 @@ buy_emc(amount_usdt, destination_emc_address, callback_url, ref)
 then renders its own product on that EMC — the user only ever pays USDT and
 never touches a wallet) or the **user's own** address (raw on-ramp).
 
+## Use via MCP
+
+An AI agent with USDT can buy EMC directly — **no account, no API key, no
+callback**. swap exposes a keyless MCP exchanger over **Streamable HTTP** at:
+
+```
+https://swap.emercoin.com/mcp
+```
+
+Add it to a client:
+
+```bash
+# Claude Code
+claude mcp add --transport http swap https://swap.emercoin.com/mcp
+```
+
+- **Claude Desktop** — Settings → Connectors → *Add custom connector* → the URL above.
+- **MCP Inspector** — `npx @modelcontextprotocol/inspector` → Streamable HTTP → the URL.
+
+Tools:
+
+| Tool | What it does |
+|------|--------------|
+| `get_swap_config` | min/max USDT per order + the fixed EMC-per-USDT rate |
+| `buy_emc` | open an order → returns a deposit address + the **exact** USDT amount to send (+ optional `idempotency_key`) |
+| `get_order_status` | poll an order by its token until delivered |
+| `cancel_order` | drop an unpaid order early |
+
+Flow: `get_swap_config` → `buy_emc(amount, your_emc_address)` → send the **exact**
+returned amount (TRC20) to the deposit address → poll `get_order_status` by token
+until `notified`. One-way, exact-amount, **no refunds**. The same primitive is also
+available as keyed **REST** (for services, with a signed callback) and a keyless
+**web** page at [swap.emercoin.com](https://swap.emercoin.com).
+
 ## Locked decisions
 
 | Topic | Decision |
