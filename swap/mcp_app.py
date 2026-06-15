@@ -18,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from . import db, repository
-from .orders import OrderError, ReserveError, buy_emc as _buy_emc
+from .orders import CapacityError, OrderError, ReserveError, buy_emc as _buy_emc
 
 mcp = FastMCP("swap")
 
@@ -50,7 +50,7 @@ async def buy_emc(
             callback_url=callback_url,
             ref=ref,
         )
-    except (OrderError, ReserveError) as exc:
+    except (OrderError, ReserveError, CapacityError) as exc:
         raise ValueError(str(exc))
     return resp.model_dump()
 

@@ -124,6 +124,17 @@ async def update_status(order_id: int, new: OrderStatus) -> None:
     await conn.commit()
 
 
+async def count_awaiting() -> int:
+    """How many orders are currently awaiting payment (for the back-pressure cap)."""
+    conn = await get_conn()
+    cur = await conn.execute(
+        "SELECT COUNT(*) AS n FROM orders WHERE status = ?",
+        (OrderStatus.AWAITING_PAYMENT,),
+    )
+    row = await cur.fetchone()
+    return int(row["n"])
+
+
 async def outstanding_emc() -> float:
     """EMC owed against orders whose USDT is already in but not yet delivered
     (confirmed / deliver_failed / aml_hold). Used to size the reserve pre-flight.

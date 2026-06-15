@@ -16,6 +16,7 @@ def web_env(monkeypatch):
     monkeypatch.setattr(settings, "emc_reserve_check", False)
     monkeypatch.setattr(settings, "web_rate_per_min", 3)
     web._hits.clear()
+    web._recent.clear()
     web._web_service = None
 
 
@@ -90,6 +91,20 @@ async def test_rate_limit_per_ip(fresh_db, web_env):
     assert e.value.status_code == 429
     # a different IP is unaffected
     web._rate_check(_req(ip="8.8.8.8"))
+
+
+async def test_concurrency_cap_per_ip(fresh_db, web_env, monkeypatch):
+    monkeypatch.setattr(settings, "web_max_concurrent_per_ip", 2)
+    await web.ensure_web_service()
+    req = web.WebOrderRequest(
+        amount_usdt=5.0, destination_emc_address="em1qamp64pg6ye8j6h2gszs6k0y7u3p9hkstcy65s6"
+    )
+    for _ in range(2):
+        await web.web_create_order(req, _req(ip="7.7.7.7"))
+    with pytest.raises(HTTPException) as e:        # 3rd open order from the same IP
+        await web.web_create_order(req, _req(ip="7.7.7.7"))
+    assert e.value.status_code == 429
+    await web.web_create_order(req, _req(ip="7.7.7.8"))   # a different IP is unaffected
 
 
 async def test_client_ip_prefers_forwarded_for(fresh_db, web_env):

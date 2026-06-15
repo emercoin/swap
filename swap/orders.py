@@ -29,6 +29,10 @@ class ReserveError(Exception):
     """EMC reserve can't cover this order — service temporarily unavailable (503)."""
 
 
+class CapacityError(Exception):
+    """Too many orders awaiting payment right now — temporary back-pressure (503)."""
+
+
 def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -54,6 +58,14 @@ async def buy_emc(
     existing = await repository.find_order_by_ref(service_id, ref)
     if existing is not None:
         return _to_response(existing)
+
+    # Back-pressure: cap concurrent awaiting orders so order-creation spam can't
+    # exhaust the amount-tag space / DB rows / the expiry sweep. Checked after
+    # idempotency (a repeat ref always resolves) and before the reserve call.
+    if settings.max_awaiting_orders and (
+        await repository.count_awaiting() >= settings.max_awaiting_orders
+    ):
+        raise CapacityError("too many pending orders; try again shortly")
 
     # Reserve pre-flight: never take USDT we can't deliver EMC for (out-of-service
     # when the hot wallet, minus outstanding promises, can't cover this order).

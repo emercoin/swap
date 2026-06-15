@@ -24,7 +24,7 @@ from . import db, repository, web
 from .auth import Service, require_service
 from .config import settings
 from .models import BuyEmcRequest, BuyEmcResponse, OrderResponse, OrderStatus
-from .orders import OrderError, ReserveError, buy_emc
+from .orders import CapacityError, OrderError, ReserveError, buy_emc
 from .services import watcher
 
 SITE_DIR = Path(__file__).parent / "site"
@@ -86,7 +86,7 @@ async def post_buy_emc(
         )
     except OrderError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except ReserveError as exc:
+    except (ReserveError, CapacityError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
 

@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from . import repository
 from .config import settings
 from .models import OrderStatus
-from .orders import OrderError, ReserveError, buy_emc
+from .orders import CapacityError, OrderError, ReserveError, buy_emc
 
 router = APIRouter(prefix="/web", tags=["web"])
 
@@ -41,6 +41,10 @@ _web_service: aiosqlite.Row | None = None
 
 # Per-IP sliding-window rate limiter (in-memory; single-process watcher/app).
 _hits: dict[str, deque[float]] = defaultdict(deque)
+# Per-IP recent creations over the order-TTL window — approximates how many orders
+# one client holds open at once (an order can't outlive its TTL) without tracking
+# the client on each order row.
+_recent: dict[str, deque[float]] = defaultdict(deque)
 
 
 # --- schemas ---------------------------------------------------------------
@@ -135,6 +139,21 @@ def _rate_check(request: Request) -> None:
     window.append(now)
 
 
+def _concurrency_check(request: Request) -> None:
+    """Cap how many orders one client can hold open at once. Counts this IP's
+    creations within the order-TTL window (orders can't outlive it), so no per-order
+    client tracking is needed; it over-counts already-settled ones, i.e. errs strict."""
+    ip = _client_ip(request)
+    now = time.monotonic()
+    window = settings.order_ttl_minutes * 60
+    recent = _recent[ip]
+    while recent and now - recent[0] > window:
+        recent.popleft()
+    if len(recent) >= settings.web_max_concurrent_per_ip:
+        raise HTTPException(status_code=429, detail="too many open orders; wait for them to expire")
+    recent.append(now)
+
+
 # --- endpoints -------------------------------------------------------------
 
 @router.get("/config", response_model=WebConfigResponse)
@@ -154,6 +173,7 @@ async def web_create_order(req: WebOrderRequest, request: Request) -> WebOrderRe
     if _web_service is None:
         raise HTTPException(status_code=503, detail="web channel not ready")
     _rate_check(request)
+    _concurrency_check(request)
     dest = req.destination_emc_address.strip()
     if not _EMC_ADDR.match(dest):
         raise HTTPException(status_code=400, detail="invalid EMC address")
@@ -167,7 +187,7 @@ async def web_create_order(req: WebOrderRequest, request: Request) -> WebOrderRe
         )
     except OrderError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except ReserveError as exc:
+    except (ReserveError, CapacityError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return WebOrderResponse(
         token=_token_for(resp.order_id),

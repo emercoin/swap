@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     confirmations_required: int = 19
     order_ttl_minutes: int = 30
 
+    # Back-pressure: cap orders awaiting payment so order-creation spam can't
+    # exhaust the amount-tag space / DB / expiry sweep (0 disables). Paid orders
+    # aren't awaiting, so this never blocks a buyer who actually pays.
+    max_awaiting_orders: int = 500
+
     # EMC reserve: refuse new orders we can't deliver (out-of-service when low).
     emc_reserve_check: bool = True
     emc_reserve_buffer: float = 0.0   # extra EMC kept above outstanding obligations
@@ -62,6 +67,8 @@ class Settings(BaseSettings):
     web_channel_enabled: bool = True
     web_service_name: str = "web"          # first-party service row driving /web
     web_rate_per_min: int = 6              # max order creations per client IP / min
+    web_max_concurrent_per_ip: int = 5     # max orders one IP can hold open at once
+    #                                        (approximated over the order-TTL window)
     serve_static: bool = False             # serve swap/site/ from the app (local dev;
     #                                        in prod Caddy serves the static corpus)
 
