@@ -86,15 +86,29 @@ async def test_reserve_rejects_when_low(fresh_db, deposit_addr, monkeypatch):
                              callback_url="c", ref="low", adapter=FakeAdapter(40))
 
 
-async def test_reserve_accounts_for_outstanding(fresh_db, deposit_addr, monkeypatch):
+async def test_reserve_ignores_unpaid_orders(fresh_db, deposit_addr, monkeypatch):
+    # Unpaid awaiting orders must NOT consume the reserve, else anyone could 503
+    # every real buyer just by creating orders they never pay for. Wallet holds 70
+    # (enough for one 50 EMC order); many unpaid orders are still all allowed.
     monkeypatch.setattr(settings, "emc_reserve_check", True)
     sid = await _service()
-    # first order (50 EMC) succeeds; wallet 70 now owes 50 → only 20 free
-    await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
-                         callback_url="c", ref="a", adapter=FakeAdapter(70))
-    with pytest.raises(orders.ReserveError):     # second 50 EMC order can't be covered
+    for i in range(5):
+        resp = await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
+                                    callback_url="c", ref=f"u{i}", adapter=FakeAdapter(70))
+        assert resp.status == OrderStatus.AWAITING_PAYMENT
+
+
+async def test_reserve_accounts_for_paid_orders(fresh_db, deposit_addr, monkeypatch):
+    # A confirmed (paid) order DOES reserve its EMC: wallet 70 owes 50 → only 20
+    # free, so the next 50 EMC order can't be covered.
+    monkeypatch.setattr(settings, "emc_reserve_check", True)
+    sid = await _service()
+    first = await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
+                                 callback_url="c", ref="paid", adapter=FakeAdapter(70))
+    await repository.update_status(first.order_id, OrderStatus.CONFIRMED)
+    with pytest.raises(orders.ReserveError):
         await orders.buy_emc(service_id=sid, amount_usdt=5.0, destination_emc_address="E",
-                             callback_url="c", ref="b", adapter=FakeAdapter(70))
+                             callback_url="c", ref="next", adapter=FakeAdapter(70))
 
 
 async def test_reserve_allows_when_enough(fresh_db, deposit_addr, monkeypatch):

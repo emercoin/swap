@@ -125,13 +125,19 @@ async def update_status(order_id: int, new: OrderStatus) -> None:
 
 
 async def outstanding_emc() -> float:
-    """EMC we've promised but not yet delivered (sum over live, undelivered orders).
-    Used to size the reserve pre-flight check so concurrent orders are accounted."""
+    """EMC owed against orders whose USDT is already in but not yet delivered
+    (confirmed / deliver_failed / aml_hold). Used to size the reserve pre-flight.
+
+    Unpaid `awaiting_payment` orders are deliberately excluded: counting them let
+    anyone exhaust the reserve — and so 503 every real buyer — just by creating
+    orders they never pay for. Paid orders still can't oversell the reserve because
+    delivery falls back to `deliver_failed` + bounded retry when the wallet is short.
+    """
     conn = await get_conn()
     cur = await conn.execute(
         "SELECT COALESCE(SUM(emc_amount), 0) AS s FROM orders "
-        "WHERE emc_txid IS NULL AND status != ?",
-        (OrderStatus.EXPIRED,),
+        "WHERE emc_txid IS NULL AND status IN (?, ?, ?)",
+        (OrderStatus.CONFIRMED, OrderStatus.DELIVER_FAILED, OrderStatus.AML_HOLD),
     )
     row = await cur.fetchone()
     return float(row["s"] or 0)
