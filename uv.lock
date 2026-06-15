@@ -465,7 +465,7 @@ requires-dist = [
     { name = "bip-utils", specifier = ">=2.9" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", specifier = ">=1.2" },
+    { name = "mcp", specifier = ">=1.12" },
     { name = "py-solc-x", marker = "extra == 'testnet'", specifier = ">=2.0" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },

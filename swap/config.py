@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     serve_static: bool = False             # serve swap/site/ from the app (local dev;
     #                                        in prod Caddy serves the static corpus)
 
+    # MCP exchanger surface: the keyless web on-ramp re-exposed as agent tools
+    # (buy_emc / order_status / cancel_order / swap_config), mounted at /mcp over
+    # Streamable HTTP. Shares the web channel's anti-spam (global cap + per-IP).
+    mcp_enabled: bool = True
+    # DNS-rebinding protection is for browser-driven localhost servers; here the
+    # edge (Caddy/CF) validates Host and callers are server-side agents, so off.
+    mcp_dns_rebinding_protection: bool = False
+
     # AML
     # OFAC sanctioned TRON addresses (per-chain list auto-built from the OFAC SDN).
     aml_ofac_url: str = (

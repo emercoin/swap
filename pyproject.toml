@@ -12,7 +12,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "aiosqlite>=0.20",
-    "mcp>=1.2",
+    "mcp>=1.12",             # FastMCP Streamable HTTP + transport_security (the /mcp surface)
     "bip-utils>=2.9",        # TRON HD derivation (BIP44, coin 195)
 ]
 

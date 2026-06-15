@@ -20,7 +20,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
-from . import db, repository, web
+from . import db, mcp_app, repository, web
 from .auth import Service, require_service
 from .config import settings
 from .models import BuyEmcRequest, BuyEmcResponse, OrderResponse, OrderStatus
@@ -39,13 +39,19 @@ RUN_WATCHER = True  # set False in tests / API-only deployments
 async def lifespan(app: FastAPI):
     await db.connect()
     if settings.web_channel_enabled:
-        await web.ensure_web_service()       # first-party "web" service for /web/*
+        await web.ensure_web_service()       # first-party "web" service for /web/* + MCP
     stop = asyncio.Event()
     task: asyncio.Task | None = None
     if RUN_WATCHER:
         task = asyncio.create_task(watcher.run(stop))
     try:
-        yield
+        # The mounted MCP sub-app's own lifespan isn't run by Starlette, so drive its
+        # Streamable HTTP session manager here for the life of the app.
+        if settings.mcp_enabled:
+            async with mcp_app.mcp.session_manager.run():
+                yield
+        else:
+            yield
     finally:
         stop.set()
         if task is not None:
@@ -110,6 +116,14 @@ async def get_order(
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
+
+
+# MCP exchanger surface for AI agents (keyless, mirrors /web): Streamable HTTP at
+# /mcp. Mounted before the static "/" mount so it isn't shadowed. The session
+# manager is driven from the lifespan above; Caddy already proxies all of swap:8002,
+# so this is reachable at swap.emercoin.com/mcp with no edge change.
+if settings.mcp_enabled:
+    app.mount("/mcp", mcp_app.mcp.streamable_http_app())
 
 
 # Static site (exchanger page + offer). In production Caddy serves swap/site and

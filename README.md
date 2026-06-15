@@ -41,7 +41,7 @@ swap/
   auth.py          caller auth by API key
   orders.py        buy_emc business logic (shared by REST + MCP)
   main.py          FastAPI app (REST: POST /buy_emc, GET /order/{id})
-  mcp_app.py       FastMCP wrapper (buy_emc + status as MCP tools)
+  mcp_app.py       keyless MCP exchanger at /mcp (agent tools, mirrors /web)
   web.py           public keyless /web/* channel (raw on-ramp for humans)
   site/            static exchanger page + offer (index.html, oferta.html)
   clients/
@@ -103,5 +103,11 @@ environment before they are wired into the watcher.
 > This removes per-order sweeping and the fresh-address gas penalty; the trade-off
 > is exact-amount, single-transfer payments (no auto under/overpaid). Collected
 > USDT is moved to treasury / off-ramp manually at low volume.
+> MCP exchanger: the keyless web on-ramp is also exposed as MCP tools (`buy_emc`,
+> `order_status`, `cancel_order`, `swap_config`) over Streamable HTTP at `/mcp`, so
+> an AI agent buys EMC with USDT directly — no key, no callback, same anti-spam as
+> the web channel. No auth by design: it's a public "pay for a service" on-ramp,
+> not an account.
+>
 > Deferred: USDT sweep / TRON tx signing (`services/sweep.py`, kept off the hot
-> path) and MCP transport-level auth.
+> path).

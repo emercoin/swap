@@ -1,81 +1,146 @@
-"""MCP surface for swap — so an agent with USDT pays programmatically.
+"""MCP exchanger surface — so an AI agent holding USDT buys EMC programmatically.
 
-Target audience is AI agents: an agent holding USDT calls `buy_emc`
-directly, no human in the loop. Same two operations as REST, exposed as MCP
-tools over a thin FastMCP server.
+This mirrors the keyless public **web** channel (`swap/web.py`), not the keyed
+service-to-service API: an agent wanting EMC at its own address needs no account,
+no API key and no callback — exactly like a human on the web page. The agent calls
+`buy_emc` (amount + its EMC address), gets a shared deposit address and an EXACT
+amount to pay, then polls `order_status` by an opaque token until EMC is delivered.
 
-Auth: the calling service's API key is passed as a tool argument here;
-production should carry it in the transport (header / OAuth) rather than as a
-visible parameter.
+Backed by the same first-party "web" service row and `orders.buy_emc`, so it
+inherits the global awaiting cap and reserve pre-flight; per-IP rate/concurrency
+caps are reused from the web channel via the request's client IP. There is no
+browser-style proof-of-work here (the caller is a program, not a page) — the
+global cap and per-IP limits carry the anti-spam load.
 
-Run standalone (stdio):  `python -m swap.mcp_app`
+Auth: none, by design — this is a public on-ramp ("pay for a service"), same as
+the web page; we don't make a buyer register to hand us USDT.
+
+Transport: mounted into the FastAPI app as Streamable HTTP at `/mcp` (see
+`swap/main.py`); also runnable standalone over stdio: `python -m swap.mcp_app`.
 """
 from __future__ import annotations
 
-from typing import Annotated
+from contextlib import contextmanager
+from typing import Annotated, Iterator
 
-from mcp.server.fastmcp import FastMCP
+from fastapi import HTTPException
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
-from . import db, repository
-from .orders import CapacityError, OrderError, ReserveError, buy_emc as _buy_emc
+from . import db, web
+from .config import settings
 
-mcp = FastMCP("swap")
+# DNS-rebinding protection guards browser-driven localhost servers; here the edge
+# (Caddy/Cloudflare) terminates and validates Host, and the audience is server-side
+# agents, so it is off by default (toggle via SWAP_MCP_DNS_REBINDING_PROTECTION).
+_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=settings.mcp_dns_rebinding_protection
+)
+
+mcp = FastMCP(
+    "swap",
+    instructions=(
+        "Buy EMC with USDT (TRC20). Call swap_config for the limits, then buy_emc "
+        "with the USDT amount and your EMC address; pay the EXACT returned amount to "
+        "the deposit address (one-way, no refunds), then poll order_status by token."
+    ),
+    stateless_http=True,
+    json_response=True,
+    transport_security=_security,
+)
+# Mounted under /mcp in the FastAPI app, so the endpoint itself sits at the mount root.
+mcp.settings.streamable_http_path = "/"
 
 
-async def _resolve_service_id(api_key: str) -> int:
-    row = await repository.get_service_by_api_key(api_key)
-    if row is None or not row["active"]:
-        raise ValueError("invalid API key")
-    return row["id"]
+@contextmanager
+def _as_tool_error() -> Iterator[None]:
+    """Translate the web layer's HTTPExceptions into plain MCP tool errors."""
+    try:
+        yield
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from None
+
+
+async def _ready() -> None:
+    """Make sure the DB and the first-party web service exist (idempotent). The HTTP
+    app does this at startup; this also covers the standalone stdio entrypoint."""
+    await db.connect()
+    if web._web_service is None:
+        await web.ensure_web_service()
+
+
+def _request(ctx: Context):
+    """The underlying Starlette request (for the client IP), or None over stdio."""
+    try:
+        return ctx.request_context.request
+    except (ValueError, AttributeError):
+        return None
+
+
+class _NoRequest:
+    """Stand-in when there is no HTTP request (stdio): no IP, so per-IP caps no-op."""
+    headers: dict = {}
+    client = None
+
+
+@mcp.tool()
+async def swap_config() -> dict:
+    """The current limits so you can pick a valid amount: min/max USDT per order and
+    the fixed EMC-per-USDT rate (EMC delivered = amount_usdt × emc_per_usdt)."""
+    return {
+        "min_usdt": settings.min_usdt,
+        "max_usdt": settings.max_usdt,
+        "emc_per_usdt": settings.emc_per_usdt,
+    }
 
 
 @mcp.tool()
 async def buy_emc(
-    api_key: Annotated[str, Field(description="calling service API key")],
-    amount_usdt: Annotated[float, Field(gt=0, description="USDT to collect (≤ cap)")],
-    destination_emc_address: Annotated[str, Field(description="where EMC is delivered")],
-    callback_url: Annotated[str, Field(description="signed POST lands here when paid")],
-    ref: Annotated[str, Field(description="caller's invoice id (idempotency key)")],
+    ctx: Context,
+    amount_usdt: Annotated[float, Field(gt=0, description="USDT to pay (within min/max from swap_config)")],
+    destination_emc_address: Annotated[str, Field(description="your EMC address to receive EMC")],
 ) -> dict:
-    """Open a swap order: pay USDT to the returned TRON deposit address, swap
-    delivers EMC (×10) to destination on confirmation and signs a callback."""
-    await db.connect()
-    service_id = await _resolve_service_id(api_key)
-    try:
-        resp = await _buy_emc(
-            service_id=service_id,
-            amount_usdt=amount_usdt,
-            destination_emc_address=destination_emc_address,
-            callback_url=callback_url,
-            ref=ref,
+    """Open an order to buy EMC with USDT. Returns a shared TRON deposit address and
+    an EXACT `amount_usdt` to send (TRC20) — pay that figure precisely; it is your
+    order's tag (a wrong amount cannot be matched and is not refunded). On confirmed
+    payment, EMC (amount_usdt × rate) is delivered to your address. Keep the returned
+    `token` and poll `order_status`. No key, no callback; one-way."""
+    await _ready()
+    with _as_tool_error():
+        resp = await web.create_public_order(
+            amount_usdt,
+            destination_emc_address,
+            _request(ctx) or _NoRequest(),
+            enforce_pow=False,
         )
-    except (OrderError, ReserveError, CapacityError) as exc:
-        raise ValueError(str(exc))
-    return resp.model_dump()
+    return resp.model_dump(mode="json")
 
 
 @mcp.tool()
 async def order_status(
-    api_key: Annotated[str, Field(description="calling service API key")],
-    order_id: Annotated[int, Field(description="order id from buy_emc")],
+    token: Annotated[str, Field(description="the token returned by buy_emc")],
 ) -> dict:
-    """Current status of an order (fallback when the callback hasn't arrived)."""
-    await db.connect()
-    service_id = await _resolve_service_id(api_key)
-    row = await repository.get_order(order_id)
-    if row is None or row["service_id"] != service_id:
-        raise ValueError("order not found")
-    return {
-        "order_id": row["id"],
-        "ref": row["ref"],
-        "status": row["status"],
-        "amount_usdt": row["amount_usdt"],
-        "emc_amount": row["emc_amount"],
-        "deposit_address": row["deposit_address"],
-        "emc_txid": row["emc_txid"],
-        "expires_at": row["expires_at"],
-    }
+    """Current status of your order (poll until `notified`/`emc_delivered`). Returns
+    the status, the exact amount, the EMC amount and address, and the EMC txid once
+    delivered."""
+    await _ready()
+    with _as_tool_error():
+        resp = await web.web_order_status(token)
+    return resp.model_dump(mode="json")
+
+
+@mcp.tool()
+async def cancel_order(
+    token: Annotated[str, Field(description="the token returned by buy_emc")],
+) -> dict:
+    """Drop an unpaid order early (frees its slot ahead of expiry). Only works while
+    it is still awaiting payment; once a payment is in flight it is too late. A
+    payment sent after cancellation matches nothing and is not refunded."""
+    await _ready()
+    with _as_tool_error():
+        resp = await web.web_cancel_order(token)
+    return resp.model_dump(mode="json")
 
 
 if __name__ == "__main__":

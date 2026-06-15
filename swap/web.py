@@ -227,24 +227,35 @@ async def web_challenge() -> WebChallengeResponse:
     return WebChallengeResponse(enabled=True, challenge=challenge, bits=bits)
 
 
-@router.post("/order", response_model=WebOrderResponse)
-async def web_create_order(req: WebOrderRequest, request: Request) -> WebOrderResponse:
-    """Public order creation: no key, rate-limited. One-way, exact amount, no
-    refunds (per the offer). The page must show the EXACT `amount_usdt` to pay."""
+async def create_public_order(
+    amount_usdt: float,
+    destination_emc_address: str,
+    request: Request,
+    *,
+    pow_challenge: str = "",
+    pow_solution: str = "",
+    enforce_pow: bool = True,
+) -> WebOrderResponse:
+    """Shared keyless order creation, backing both the browser web channel and the
+    MCP exchanger surface. No key: protected by per-IP rate + concurrency caps, the
+    global awaiting cap and reserve pre-flight (inside `buy_emc`), and — for the
+    browser — proof-of-work. Programmatic callers (MCP) set `enforce_pow=False`;
+    the global cap and per-IP limits still bite. One-way, exact amount, no refunds."""
     if _web_service is None:
         raise HTTPException(status_code=503, detail="web channel not ready")
     _rate_check(request)
     _concurrency_check(request)
-    _verify_pow(req.pow_challenge, req.pow_solution)
-    dest = req.destination_emc_address.strip()
+    if enforce_pow:
+        _verify_pow(pow_challenge, pow_solution)
+    dest = destination_emc_address.strip()
     if not _EMC_ADDR.match(dest):
         raise HTTPException(status_code=400, detail="invalid EMC address")
     try:
         resp = await buy_emc(
             service_id=_web_service["id"],
-            amount_usdt=req.amount_usdt,
+            amount_usdt=amount_usdt,
             destination_emc_address=dest,
-            callback_url="",                 # public order → page polls, no callback
+            callback_url="",                 # public order → caller polls, no callback
             ref=uuid.uuid4().hex,            # no caller invoice id; synth a unique ref
         )
     except OrderError as exc:
@@ -259,6 +270,20 @@ async def web_create_order(req: WebOrderRequest, request: Request) -> WebOrderRe
         emc_amount=resp.emc_amount,
         status=resp.status,
         expires_at=resp.expires_at,
+    )
+
+
+@router.post("/order", response_model=WebOrderResponse)
+async def web_create_order(req: WebOrderRequest, request: Request) -> WebOrderResponse:
+    """Public order creation: no key, rate-limited. One-way, exact amount, no
+    refunds (per the offer). The page must show the EXACT `amount_usdt` to pay."""
+    return await create_public_order(
+        req.amount_usdt,
+        req.destination_emc_address,
+        request,
+        pow_challenge=req.pow_challenge,
+        pow_solution=req.pow_solution,
+        enforce_pow=True,
     )
 
 
