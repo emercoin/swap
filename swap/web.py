@@ -227,6 +227,17 @@ async def web_challenge() -> WebChallengeResponse:
     return WebChallengeResponse(enabled=True, challenge=challenge, bits=bits)
 
 
+def _idempotency_ref(key: str, dest: str, amount_usdt: float) -> str:
+    """Derive the order `ref` from a caller-chosen idempotency key, BOUND to the
+    destination + amount. Keyless callers all share one service_id, so `ref` is the
+    only namespace: hashing the destination and amount in means a key only ever
+    dedups to an order with the SAME recipient and figure — two anonymous callers
+    that happen to pick the same key can't be handed each other's order."""
+    units = round(amount_usdt * 1_000_000)
+    digest = sha256(f"{key}\x00{dest}\x00{units}".encode()).hexdigest()
+    return "idem_" + digest[:40]
+
+
 async def create_public_order(
     amount_usdt: float,
     destination_emc_address: str,
@@ -235,12 +246,18 @@ async def create_public_order(
     pow_challenge: str = "",
     pow_solution: str = "",
     enforce_pow: bool = True,
+    idempotency_key: str = "",
 ) -> WebOrderResponse:
     """Shared keyless order creation, backing both the browser web channel and the
     MCP exchanger surface. No key: protected by per-IP rate + concurrency caps, the
     global awaiting cap and reserve pre-flight (inside `buy_emc`), and — for the
     browser — proof-of-work. Programmatic callers (MCP) set `enforce_pow=False`;
-    the global cap and per-IP limits still bite. One-way, exact amount, no refunds."""
+    the global cap and per-IP limits still bite. One-way, exact amount, no refunds.
+
+    `idempotency_key` (optional): a stable, caller-chosen string that makes retries
+    return the SAME order instead of opening a new one (bound to destination+amount,
+    see `_idempotency_ref`). Omitted → a fresh random ref, i.e. every call is a new
+    order."""
     if _web_service is None:
         raise HTTPException(status_code=503, detail="web channel not ready")
     _rate_check(request)
@@ -250,13 +267,14 @@ async def create_public_order(
     dest = destination_emc_address.strip()
     if not _EMC_ADDR.match(dest):
         raise HTTPException(status_code=400, detail="invalid EMC address")
+    ref = _idempotency_ref(idempotency_key, dest, amount_usdt) if idempotency_key else uuid.uuid4().hex
     try:
         resp = await buy_emc(
             service_id=_web_service["id"],
             amount_usdt=amount_usdt,
             destination_emc_address=dest,
             callback_url="",                 # public order → caller polls, no callback
-            ref=uuid.uuid4().hex,            # no caller invoice id; synth a unique ref
+            ref=ref,                         # idempotency key (bound to dest+amount) or random
         )
     except OrderError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

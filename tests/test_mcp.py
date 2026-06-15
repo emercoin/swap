@@ -48,6 +48,23 @@ async def test_buy_emc_creates_keyless_order(fresh_db, mcp_env):
     assert web._order_id_from_token(resp.token) == resp.order_id
 
 
+async def test_buy_emc_idempotency_key(fresh_db, mcp_env, monkeypatch):
+    monkeypatch.setattr(settings, "web_max_concurrent_per_ip", 50)
+    monkeypatch.setattr(settings, "web_rate_per_min", 50)
+    OTHER = "Eeyqx7K8Yk9mWcCq4zZ6vUe2gJ3hNpRtAa"
+    # same key + dest + amount → the SAME order (retry-safe, no duplicate)
+    r1 = await mcp_app.buy_emc(_ctx(), amount_usdt=5.0, destination_emc_address=EMC_ADDR, idempotency_key="k1")
+    r2 = await mcp_app.buy_emc(_ctx(), amount_usdt=5.0, destination_emc_address=EMC_ADDR, idempotency_key="k1")
+    assert r1.order_id == r2.order_id
+    # same key but a DIFFERENT destination → a new order (no cross-attribution leak)
+    r3 = await mcp_app.buy_emc(_ctx(), amount_usdt=5.0, destination_emc_address=OTHER, idempotency_key="k1")
+    assert r3.order_id != r1.order_id
+    # no key → every call is a brand-new order
+    r4 = await mcp_app.buy_emc(_ctx(), amount_usdt=5.0, destination_emc_address=EMC_ADDR)
+    r5 = await mcp_app.buy_emc(_ctx(), amount_usdt=5.0, destination_emc_address=EMC_ADDR)
+    assert r4.order_id != r5.order_id
+
+
 async def test_buy_emc_rejects_bad_address(fresh_db, mcp_env):
     with pytest.raises(ValueError):
         await mcp_app.buy_emc(_ctx(), amount_usdt=5.0, destination_emc_address="nope!!")

@@ -156,6 +156,12 @@ async def buy_emc(
     destination_emc_address: Annotated[
         str, Field(description="your EMC address to receive EMC (legacy 'E…' or bech32 'em1…')")
     ],
+    idempotency_key: Annotated[
+        str,
+        Field(default="", description="optional: a stable string you choose; retrying buy_emc "
+              "with the same key + address + amount returns the SAME order instead of opening a "
+              "new one (use it so a retry after a timeout doesn't create a duplicate)"),
+    ] = "",
 ) -> WebOrderResponse:
     """Open an order to buy EMC with USDT (TRC20) and get back a shared TRON
     `deposit_address` plus the EXACT `amount_usdt` to send. This does NOT move funds:
@@ -163,8 +169,9 @@ async def buy_emc(
     deposit address; on confirmed payment, EMC (amount_usdt × rate) is delivered to
     your address automatically. Keep the returned `token` and poll get_order_status
     until 'notified'; to abandon before paying, call cancel_order. One-way — a wrong
-    amount cannot be matched and is NOT refunded. Each call opens a NEW order (not
-    idempotent). Use get_swap_config first to pick a valid amount."""
+    amount cannot be matched and is NOT refunded. By default each call opens a NEW
+    order; pass a stable `idempotency_key` to make retries return the same order. Use
+    get_swap_config first to pick a valid amount."""
     await _ready()
     with _as_tool_error():
         return await web.create_public_order(
@@ -172,6 +179,7 @@ async def buy_emc(
             destination_emc_address,
             _request(ctx) or _NoRequest(),
             enforce_pow=False,
+            idempotency_key=idempotency_key,
         )
 
 
