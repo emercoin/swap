@@ -13,6 +13,7 @@
   <meta property="og:url" content="https://swap.emercoin.com/">
   <link rel="alternate" type="application/json" title="OpenAPI" href="/openapi.json">
   <link rel="stylesheet" href="/style.css">
+  <script src="/qrcode.min.js" defer></script>
 </head>
 <body>
   <div class="card">
@@ -24,8 +25,8 @@
 
     <!-- step 1: the form -->
     <form id="form">
-      <label class="fld" for="amount">Amount to pay (USDT)</label>
-      <input id="amount" type="number" step="0.01" inputmode="decimal" placeholder="5.00" required>
+      <label class="fld">Amount to pay (USDT)</label>
+      <div class="denoms" id="denoms"></div>
       <label class="fld" for="dest">Your EMC address</label>
       <input id="dest" type="text" autocomplete="off" spellcheck="false"
              placeholder="em1… or E…" required>
@@ -46,9 +47,11 @@
         <div class="val"><span id="payAddr">—</span>
           <button class="copy" data-copy="payAddr">Copy</button></div>
       </div>
+      <div class="qrwrap"><div id="qr"></div>
+        <span class="qrcap">Scan the deposit address</span></div>
       <p class="note">Pay the <b>exact</b> figure above in a <b>single</b> transfer.
-        It is one-way: a wrong amount cannot be matched and is not refunded. The
-        order expires at <span id="expires">—</span>.</p>
+        It is one-way: a wrong amount cannot be matched and is not refunded.
+        Expires in <b id="countdown">—</b> <span class="muted">(<span id="expires">—</span>)</span>.</p>
 
       <div class="badge" id="badge"><span class="dot"></span><span id="badgeText">Waiting for payment…</span></div>
       <p class="statusmsg" id="statusMsg">Send the USDT above; this page updates automatically.</p>
@@ -56,7 +59,10 @@
         <label>EMC delivery txid</label>
         <div class="val"><span id="txid">—</span><button class="copy" data-copy="txid">Copy</button></div>
       </div>
-      <button class="btn ghost" id="again" type="button">New order</button>
+      <div class="paybtns">
+        <button class="btn ghost" id="cancel" type="button">Cancel order</button>
+        <button class="btn ghost hidden" id="again" type="button">New order</button>
+      </div>
     </div>
 
     <div class="foot">
@@ -69,8 +75,12 @@
 
   <script>
   const $ = id => document.getElementById(id);
+  const STORE_KEY = 'swap_order';            // localStorage handle to the live order
   let cfg = { min_usdt: 5, max_usdt: 10, emc_per_usdt: 10 };
   let poll = null;
+  let countdownTimer = null;
+  let selectedAmount = null;
+  let currentToken = null;
 
   // --- proof of work (anti-spam): solve the server's hashcash before ordering ---
   const _K = new Uint32Array([
@@ -133,17 +143,34 @@
   });
 
   function recalcEmc() {
-    const a = parseFloat($('amount').value);
-    $('emcOut').textContent = (a > 0) ? (a * cfg.emc_per_usdt).toFixed(2) : '—';
+    $('emcOut').textContent = selectedAmount ? (selectedAmount * cfg.emc_per_usdt).toFixed(2) : '—';
   }
-  $('amount').addEventListener('input', recalcEmc);
 
+  // Fixed denominations (the distinct config limits) instead of a free amount —
+  // simpler for the buyer, fewer amount-tag slots burned.
+  function renderDenoms() {
+    const denoms = [...new Set([cfg.min_usdt, cfg.max_usdt])].sort((a, b) => a - b);
+    $('denoms').innerHTML = '';
+    denoms.forEach(v => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'denom'; b.dataset.amount = v;
+      b.innerHTML = `${v} <small>USDT</small>`;
+      b.addEventListener('click', () => {
+        selectedAmount = v;
+        document.querySelectorAll('.denom').forEach(x => x.classList.toggle('sel', x === b));
+        recalcEmc();
+      });
+      $('denoms').appendChild(b);
+    });
+  }
+  renderDenoms();
+
+  let rateNoted = false;
   fetch('/web/config').then(r => r.json()).then(c => {
     cfg = c;
-    $('amount').min = c.min_usdt; $('amount').max = c.max_usdt;
-    $('amount').placeholder = c.min_usdt.toFixed(2);
-    $('rate').insertAdjacentHTML('beforeend',
-      ` &middot; rate 1 USDT = ${c.emc_per_usdt} EMC &middot; ${c.min_usdt}–${c.max_usdt} USDT`);
+    renderDenoms();
+    if (!rateNoted) { rateNoted = true;
+      $('rate').insertAdjacentHTML('beforeend', ` &middot; rate 1 USDT = ${c.emc_per_usdt} EMC`); }
   }).catch(() => {});
 
   const STATES = {
@@ -165,7 +192,14 @@
     $('badgeText').textContent = text;
     $('statusMsg').textContent = msg;
     if (s.emc_txid) { $('txid').textContent = s.emc_txid; $('txrow').classList.remove('hidden'); }
-    if (DONE.has(s.status) && poll) { clearInterval(poll); poll = null; }
+    // Cancelling is only meaningful while still awaiting; once a payment shows up
+    // (or the order ends) drop the button.
+    if (s.status && s.status !== 'awaiting_payment') $('cancel').classList.add('hidden');
+    if (DONE.has(s.status)) {
+      if (poll) { clearInterval(poll); poll = null; }
+      stopCountdown();
+      $('again').classList.remove('hidden');
+    }
   }
 
   async function check(token) {
@@ -175,9 +209,58 @@
     } catch (_) {}
   }
 
+  // --- countdown to expiry ---------------------------------------------------
+  function stopCountdown() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; } }
+  function startCountdown(expiresAt) {
+    stopCountdown();
+    const exp = new Date(expiresAt).getTime();
+    const tick = () => {
+      const ms = exp - Date.now();
+      if (ms <= 0) { $('countdown').textContent = 'expired'; stopCountdown(); return; }
+      const s = Math.floor(ms / 1000);
+      $('countdown').textContent = `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+    };
+    tick();
+    countdownTimer = setInterval(tick, 1000);
+  }
+
+  // --- deposit-address QR ----------------------------------------------------
+  function showQr(addr) {
+    const el = $('qr'); el.innerHTML = '';
+    if (typeof qrcode !== 'function') return;       // library not loaded yet
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(addr);
+      qr.make();
+      el.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1, scalable: true });
+    } catch (_) {}
+  }
+
+  // Open the pay step from either a freshly created order or a restored one. Both
+  // payloads carry amount_usdt / deposit_address / expires_at / status.
+  function openOrder(token, info) {
+    currentToken = token;
+    localStorage.setItem(STORE_KEY, token);
+    $('payAmount').textContent = info.amount_usdt.toFixed(6);
+    $('payAddr').textContent = info.deposit_address;
+    $('expires').textContent = new Date(info.expires_at).toLocaleString();
+    showQr(info.deposit_address);
+    startCountdown(info.expires_at);
+    $('form').classList.add('hidden');
+    $('pay').classList.remove('hidden');
+    $('cancel').classList.remove('hidden'); $('cancel').disabled = false;
+    $('again').classList.add('hidden');
+    $('txrow').classList.add('hidden');
+    render({ status: info.status, emc_txid: info.emc_txid });
+    check(token);
+    if (poll) clearInterval(poll);
+    poll = setInterval(() => check(token), 6000);
+  }
+
   $('form').addEventListener('submit', async e => {
     e.preventDefault();
     $('formErr').textContent = '';
+    if (!selectedAmount) { $('formErr').textContent = 'Choose an amount.'; return; }
     $('submit').disabled = true;
     const label = $('submit').textContent;
     try {
@@ -193,21 +276,14 @@
       const r = await fetch('/web/order', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          amount_usdt: parseFloat($('amount').value),
+          amount_usdt: selectedAmount,
           destination_emc_address: $('dest').value.trim(),
           pow_challenge, pow_solution,
         }),
       });
       const d = await r.json();
       if (!r.ok) { $('formErr').textContent = d.detail || 'Could not create order.'; $('submit').disabled = false; return; }
-      $('payAmount').textContent = d.amount_usdt.toFixed(6);
-      $('payAddr').textContent = d.deposit_address;
-      $('expires').textContent = new Date(d.expires_at).toLocaleString();
-      $('form').classList.add('hidden');
-      $('pay').classList.remove('hidden');
-      render({ status: d.status });
-      check(d.token);
-      poll = setInterval(() => check(d.token), 6000);
+      openOrder(d.token, d);
     } catch (_) {
       $('formErr').textContent = 'Network error. Try again.';
       $('submit').textContent = label;
@@ -215,11 +291,35 @@
     }
   });
 
+  $('cancel').addEventListener('click', async () => {
+    if (!currentToken) return;
+    if (!confirm('Cancel this order? You can start a new one afterwards.')) return;
+    $('cancel').disabled = true;
+    try {
+      const r = await fetch('/web/order/' + encodeURIComponent(currentToken) + '/cancel', { method: 'POST' });
+      if (r.ok) render(await r.json());
+      else $('cancel').disabled = false;
+    } catch (_) { $('cancel').disabled = false; }
+  });
+
   $('again').addEventListener('click', () => {
     if (poll) { clearInterval(poll); poll = null; }
+    stopCountdown();
+    localStorage.removeItem(STORE_KEY);
+    currentToken = null;
     $('pay').classList.add('hidden'); $('form').classList.remove('hidden');
     $('submit').disabled = false; $('txrow').classList.add('hidden');
   });
+
+  // Restore an in-flight (or recently finished) order on revisit.
+  (function restore() {
+    const token = localStorage.getItem(STORE_KEY);
+    if (!token) return;
+    fetch('/web/order/' + encodeURIComponent(token))
+      .then(r => { if (!r.ok) { localStorage.removeItem(STORE_KEY); return null; } return r.json(); })
+      .then(d => { if (d) openOrder(token, d); })
+      .catch(() => {});
+  })();
   </script>
 </body>
 </html>

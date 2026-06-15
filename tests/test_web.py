@@ -93,6 +93,39 @@ async def test_web_status_by_token(fresh_db, web_env):
     assert status.deposit_address == "TSharedDepositAddr"
 
 
+async def test_web_cancel_awaiting_order(fresh_db, web_env):
+    await web.ensure_web_service()
+    req = web.WebOrderRequest(
+        amount_usdt=5.0, destination_emc_address="em1qamp64pg6ye8j6h2gszs6k0y7u3p9hkstcy65s6"
+    )
+    created = await web.web_create_order(req, _req())
+    resp = await web.web_cancel_order(created.token)
+    assert resp.status == OrderStatus.EXPIRED
+    row = await repository.get_order(created.order_id)
+    assert row["status"] == OrderStatus.EXPIRED
+    # the freed tag no longer matches an incoming payment
+    assert await repository.find_open_order_by_amount(created.amount_usdt) is None
+
+
+async def test_web_cancel_rejects_non_awaiting(fresh_db, web_env):
+    await web.ensure_web_service()
+    req = web.WebOrderRequest(
+        amount_usdt=5.0, destination_emc_address="em1qamp64pg6ye8j6h2gszs6k0y7u3p9hkstcy65s6"
+    )
+    created = await web.web_create_order(req, _req())
+    await repository.update_status(created.order_id, OrderStatus.CONFIRMED)
+    with pytest.raises(HTTPException) as e:        # too late once a payment confirmed
+        await web.web_cancel_order(created.token)
+    assert e.value.status_code == 409
+
+
+async def test_web_cancel_bad_token(fresh_db, web_env):
+    await web.ensure_web_service()
+    with pytest.raises(HTTPException) as e:
+        await web.web_cancel_order("999.deadbeef")
+    assert e.value.status_code == 404
+
+
 async def test_rate_limit_per_ip(fresh_db, web_env):
     await web.ensure_web_service()
     req = _req(ip="9.9.9.9")

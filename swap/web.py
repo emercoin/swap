@@ -269,6 +269,28 @@ async def web_order_status(token: str) -> WebStatusResponse:
     row = await repository.get_order(order_id)
     if row is None:
         raise HTTPException(status_code=404, detail="order not found")
+    return _status_response(row)
+
+
+@router.post("/order/{token}/cancel", response_model=WebStatusResponse)
+async def web_cancel_order(token: str) -> WebStatusResponse:
+    """Let the buyer drop an unpaid order early (expire it now), freeing its
+    awaiting slot ahead of the TTL. Only an `awaiting_payment` order can be
+    cancelled; once a payment is in flight or settled it's too late (409). A
+    payment that nonetheless arrives after cancellation matches no open order and,
+    per the offer, is recorded unmatched and not refunded — same as a late payment."""
+    order_id = _order_id_from_token(token)
+    row = await repository.get_order(order_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    if OrderStatus(row["status"]) != OrderStatus.AWAITING_PAYMENT:
+        raise HTTPException(status_code=409, detail="order can no longer be cancelled")
+    await repository.update_status(order_id, OrderStatus.EXPIRED)
+    row = await repository.get_order(order_id)
+    return _status_response(row)
+
+
+def _status_response(row: aiosqlite.Row) -> WebStatusResponse:
     return WebStatusResponse(
         status=OrderStatus(row["status"]),
         amount_usdt=row["amount_usdt"],
