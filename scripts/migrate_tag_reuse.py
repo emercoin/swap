@@ -59,6 +59,7 @@ def _has_global_unique(con: sqlite3.Connection) -> bool:
 
 def migrate(db_path: str) -> bool:
     con = sqlite3.connect(db_path)
+    con.execute("PRAGMA busy_timeout=5000")   # wait out the live container's brief write locks
     try:
         if not _has_global_unique(con):
             print(f"{db_path}: already migrated (no global UNIQUE on amount_usdt) — nothing to do")
