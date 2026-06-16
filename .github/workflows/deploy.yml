@@ -1,15 +1,12 @@
 name: ci-deploy
 
-# Mirrors the edge/adapter pipeline of this stack: test -> build -> push to GHCR.
-# The droplet's Watchtower (label-scoped, --interval 600) pulls the new image and
-# recreates the `swap` container on its own — no inbound SSH / deploy channel.
-#
-# After the push we also *nudge* Watchtower via its token-gated HTTP API so the
-# deploy lands in seconds instead of waiting out the ~10-min poll. It stays
-# pull-based (no inbound SSH): Watchtower itself does the pull. The nudge is
-# optional — if the WATCHTOWER_URL secret isn't set the step no-ops and the poll
-# still deploys. Droplet-side setup (in the emer-ai-tools stack + Caddy): see
-# DESIGN §9 ("faster deploy").
+# Mirrors the edge/adapter pipeline of the emercoin_docker stack:
+#   test -> build -> push to GHCR -> SSH into the droplet and roll the container.
+# After pushing ghcr.io/<owner>/swap:latest, CI runs deploy/deploy-service.sh on the
+# box (git pull + `compose pull swap` + `up -d swap`). No Watchtower, no registry
+# polling, no inbound HTTP deploy endpoint — the pull happens once per release.
+# The SSH step self-skips (not fails) when DEPLOY_HOST isn't configured, so the
+# image still publishes. Droplet-side setup (deploy key + secrets): see DESIGN §9.
 on:
   push:
     branches: [main]
@@ -35,6 +32,10 @@ jobs:
     permissions:
       contents: read
       packages: write          # push to ghcr.io/<owner>/swap via GITHUB_TOKEN
+    # Surfaced into the env context so the deploy step can self-skip when the SSH
+    # secrets aren't configured (the `secrets` context isn't usable in `if:`).
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
@@ -63,21 +64,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Ask the droplet's Watchtower to pull + recreate now (token-gated HTTP API)
-      # instead of waiting for its poll. No-ops when WATCHTOWER_URL isn't configured,
-      # and never fails the pipeline (the poll is the fallback). Worst case for the
-      # token holder is forcing a re-pull of an already-published image — no arbitrary
-      # image, so this is a low-risk, public-but-token-gated endpoint behind Cloudflare.
-      - name: Nudge Watchtower to deploy now
-        env:
-          WATCHTOWER_URL: ${{ secrets.WATCHTOWER_URL }}
-          WATCHTOWER_TOKEN: ${{ secrets.WATCHTOWER_TOKEN }}
-        run: |
-          if [ -z "$WATCHTOWER_URL" ]; then
-            echo "WATCHTOWER_URL secret not set — skipping push trigger; Watchtower will poll."
-            exit 0
-          fi
-          code=$(curl -sS --max-time 30 -o /dev/stderr -w '%{http_code}' \
-            -H "Authorization: Bearer $WATCHTOWER_TOKEN" "$WATCHTOWER_URL") || true
-          echo "Watchtower update -> HTTP $code"
-          case "$code" in 200|204) echo "deploy nudged";; *) echo "::warning::Watchtower nudge failed (HTTP $code); poll will still deploy";; esac
+      # Roll the new image on the droplet immediately: SSH in and run the rollout
+      # script (git pull + `compose pull swap` + `up -d swap`). Skipped (not failed)
+      # when DEPLOY_HOST is unset, so the image still publishes. The CI key is pinned
+      # to deploy-service.sh in the droplet's authorized_keys (see DESIGN §9).
+      - name: Deploy swap on the droplet
+        if: env.DEPLOY_HOST != ''
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: bash /opt/swap/deploy/deploy-service.sh
