@@ -146,3 +146,7 @@ environment before they are wired into the watcher.
 >
 > Deferred: USDT sweep / TRON tx signing (`services/sweep.py`, kept off the hot
 > path).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
