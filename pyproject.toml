@@ -2,6 +2,10 @@
 name = "emercoin-swap"
 version = "0.1.0"
 description = "swap — EMC cashier: USDT (TRC20) in, EMC out to a destination address, signed callback. All business logic lives in the calling services."
+keywords = [
+    "mcp", "model-context-protocol", "emercoin", "emc", "usdt", "tron", "trc20",
+    "crypto", "on-ramp", "exchanger", "payments", "ai-agents",
+]
 # 3.12/3.13 only: the native deps (pydantic-core, coincurve via bip-utils) have
 # no stable wheels for 3.14, and 3.14 is still alpha — pin a release interpreter.
 requires-python = ">=3.12,<3.14"
@@ -15,6 +19,12 @@ dependencies = [
     "mcp>=1.12",             # FastMCP Streamable HTTP + transport_security (the /mcp surface)
     "bip-utils>=2.9",        # TRON HD derivation (BIP44, coin 195)
 ]
+
+[project.urls]
+Homepage = "https://swap.emercoin.com"
+Repository = "https://github.com/emercoin/swap"
+Documentation = "https://swap.emercoin.com/docs"
+"MCP endpoint" = "https://swap.emercoin.com/mcp"
 
 [project.optional-dependencies]
 # Testnet (Nile) end-to-end tooling: deploy a test TRC20 + a payer that sends it.
