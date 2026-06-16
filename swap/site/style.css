@@ -56,8 +56,9 @@ input:focus{outline:none;border-color:var(--purple-mid)}
 
 /* pay/result */
 .pay{text-align:left;margin-top:6px}
-.orderno{font-size:13px;font-weight:700;color:var(--purple);background:var(--field);
-  border:1px solid #e4d6f5;border-radius:8px;padding:8px 12px;text-align:center;letter-spacing:.3px}
+.orderno{font-size:14px;font-weight:600;color:var(--purple-mid);background:var(--field);
+  border:1px solid #e4d6f5;border-radius:10px;padding:14px 12px;text-align:center;letter-spacing:.3px}
+.orderno b{display:block;margin-top:2px;font-size:26px;font-weight:800;color:var(--purple);letter-spacing:.5px}
 .orderno:empty{display:none}
 .payrow{margin:16px 0}
 .payrow label{display:block;font-size:12px;color:var(--purple-mid);margin-bottom:6px}

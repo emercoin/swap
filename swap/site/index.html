@@ -91,7 +91,7 @@
   let selectedAmount = null;
   let currentToken = null;
   let currentOrderId = null;            // human-quotable order number (DB id)
-  const setOrderNo = () => { $('orderNo').textContent = currentOrderId ? `Order #${currentOrderId}` : ''; };
+  const setOrderNo = () => { $('orderNo').innerHTML = currentOrderId ? `Your order number<b>#${currentOrderId}</b>` : ''; };
 
   // --- proof of work (anti-spam): solve the server's hashcash before ordering ---
   const _K = new Uint32Array([
