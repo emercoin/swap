@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     trongrid_url: str = "https://api.trongrid.io"
     trongrid_api_key: str = ""
     usdt_contract: str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"  # mainnet USDT TRC20
+    usdt_decimals: int = 6           # TRON USDT = 6 decimals (raw unit ÷ 10^6 = USDT)
 
     # Single shared deposit address shown to all buyers; payments are matched by
     # a unique per-order amount tag (not by address). Keep its key (e.g. mnemonic
@@ -87,6 +88,11 @@ class Settings(BaseSettings):
     web_pow_ttl_seconds: int = 300         # how long an issued challenge stays valid
     serve_static: bool = False             # serve swap/site/ from the app (local dev;
     #                                        in prod Caddy serves the static corpus)
+
+    # Public stats digest (/stats.html + GET /web/stats): proof-of-reserves style
+    # transparency page. The endpoint is keyless and public, so a short TTL cache
+    # shields the adapter + TronGrid from being hammered on every page hit.
+    stats_cache_ttl_seconds: int = 60
 
     # MCP exchanger surface: the keyless web on-ramp re-exposed as agent tools
     # (buy_emc / order_status / cancel_order / swap_config), mounted at /mcp over

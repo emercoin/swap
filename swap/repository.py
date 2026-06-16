@@ -154,6 +154,50 @@ async def outstanding_emc() -> float:
     return float(row["s"] or 0)
 
 
+# --- stats aggregates (public /web/stats digest) ---------------------------
+
+async def order_counts() -> dict[str, int]:
+    """Order count per status (+ a synthetic `total`). Drives the digest's
+    created/delivered breakdown; absent statuses just don't appear in the map."""
+    conn = await get_conn()
+    cur = await conn.execute("SELECT status, COUNT(*) AS n FROM orders GROUP BY status")
+    counts = {row["status"]: int(row["n"]) for row in await cur.fetchall()}
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+async def delivered_emc_total() -> float:
+    """Lifetime EMC actually sent out (any order with a delivery txid), independent
+    of whether the callback later settled it to `notified`."""
+    conn = await get_conn()
+    cur = await conn.execute(
+        "SELECT COALESCE(SUM(emc_amount), 0) AS s FROM orders WHERE emc_txid IS NOT NULL"
+    )
+    row = await cur.fetchone()
+    return float(row["s"] or 0)
+
+
+async def activity_since(iso_ts: str) -> dict[str, float]:
+    """Rolling-window activity for orders created at/after `iso_ts` (UTC, schema
+    `%Y-%m-%dT%H:%M:%SZ` format): how many were created, how many of those have an
+    EMC delivery, and the EMC delivered for them. Window is keyed on `created_at`
+    so the 24h/7d figures track intake, not late settlement."""
+    conn = await get_conn()
+    cur = await conn.execute(
+        """SELECT COUNT(*) AS created,
+                  COALESCE(SUM(CASE WHEN emc_txid IS NOT NULL THEN 1 ELSE 0 END), 0) AS delivered,
+                  COALESCE(SUM(CASE WHEN emc_txid IS NOT NULL THEN emc_amount ELSE 0 END), 0) AS delivered_emc
+             FROM orders WHERE created_at >= ?""",
+        (iso_ts,),
+    )
+    row = await cur.fetchone()
+    return {
+        "created": int(row["created"]),
+        "delivered": int(row["delivered"]),
+        "delivered_emc": float(row["delivered_emc"] or 0),
+    }
+
+
 async def increment_delivery_attempts(order_id: int) -> None:
     conn = await get_conn()
     await conn.execute(

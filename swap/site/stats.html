@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>swap · stats · swap.emercoin.com</title>
+  <link rel="canonical" href="https://swap.emercoin.com/stats.html">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#7c3aed">
+  <meta name="description" content="Live swap.emercoin.com stats: USDT/EMC balances, order counts, and 24h/7d activity. A public proof-of-reserves digest.">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .card.stats{max-width:520px}
+    .sect{text-align:left;margin:22px 0 0}
+    .sect h2{color:var(--purple);font-size:14px;margin:0 0 8px;letter-spacing:.2px}
+    .row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+      padding:9px 0;border-bottom:1px solid #efe7fa;font-size:14px}
+    .row:last-child{border-bottom:none}
+    .row .k{color:var(--purple-mid);font-size:13px}
+    .row .v{font-weight:700;color:var(--purple);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .row .v small{font-weight:600;color:var(--purple-mid);font-size:11px;letter-spacing:.4px}
+    .addr{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+      color:var(--purple-mid);word-break:break-all;margin-top:2px}
+    .pill{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;
+      padding:2px 9px;margin-left:6px;vertical-align:middle}
+    .pill.ok{background:#e3f3ea;color:var(--ok)} .pill.low{background:#fbe7e6;color:var(--err)}
+    .na{color:var(--purple-mid);font-weight:600;font-style:italic}
+    .updated{font-size:11px;color:#b09cc9;margin-top:18px;letter-spacing:.3px}
+  </style>
+</head>
+<body>
+  <div class="card stats">
+    <div class="brand"><b>&#9679;</b> emer<span>coin</span> swap</div>
+    <div class="accent"></div>
+    <h1>Live stats</h1>
+    <p class="sub">A public digest of the on-ramp: reserve balances, order counts,
+      and recent activity. Updates automatically.</p>
+
+    <div class="sect">
+      <h2>Balances</h2>
+      <div class="row"><span class="k">USDT on deposit address</span><span class="v" id="usdt">—</span></div>
+      <div class="addr" id="depositAddr"></div>
+      <div class="row"><span class="k">EMC reserve (hot wallet)</span><span class="v" id="emcBalance">—</span></div>
+      <div class="row"><span class="k">EMC available <span class="muted">(net of obligations)</span></span><span class="v" id="emcAvail">—</span></div>
+      <div class="row"><span class="k">EMC owed (paid, undelivered)</span><span class="v" id="emcOwed">—</span></div>
+    </div>
+
+    <div class="sect">
+      <h2>Orders (lifetime)</h2>
+      <div class="row"><span class="k">Created (total)</span><span class="v" id="ordTotal">—</span></div>
+      <div class="row"><span class="k">Delivered</span><span class="v" id="ordDelivered">—</span></div>
+      <div class="row"><span class="k">EMC delivered</span><span class="v" id="emcDelivered">—</span></div>
+      <div id="byStatus"></div>
+    </div>
+
+    <div class="sect">
+      <h2>Activity</h2>
+      <div class="row"><span class="k">Last 24h — orders / EMC out</span><span class="v" id="act24">—</span></div>
+      <div class="row"><span class="k">Last 7d — orders / EMC out</span><span class="v" id="act7">—</span></div>
+    </div>
+
+    <p class="updated" id="updated"></p>
+
+    <div class="foot">
+      <a href="/">Buy EMC</a> ·
+      <a href="/oferta.html">Offer &amp; terms</a> ·
+      <a href="/docs">API</a>
+      <div style="margin-top:6px">swap.emercoin.com</div>
+    </div>
+  </div>
+
+  <script>
+  const $ = id => document.getElementById(id);
+  const nf = (n, d = 2) => Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const na = el => { el.innerHTML = '<span class="na">n/a</span>'; };
+
+  function render(s) {
+    const b = s.balances || {};
+    // USDT deposit balance (null when TronGrid is unreachable or the address is unset).
+    if (b.usdt_deposit == null) na($('usdt'));
+    else $('usdt').innerHTML = `${nf(b.usdt_deposit)} <small>USDT</small>`;
+    $('depositAddr').textContent = b.deposit_address || '';
+
+    // EMC reserve (null when the adapter is down).
+    const r = b.emc_reserve;
+    if (!r) { [['emcBalance'], ['emcAvail'], ['emcOwed']].forEach(([id]) => na($(id))); }
+    else {
+      const pill = r.low ? '<span class="pill low">LOW</span>' : '<span class="pill ok">OK</span>';
+      $('emcBalance').innerHTML = `${nf(r.balance)} <small>EMC</small>`;
+      $('emcAvail').innerHTML = `${nf(r.available)} <small>EMC</small>${pill}`;
+      $('emcOwed').innerHTML = `${nf(r.outstanding)} <small>EMC</small>`;
+    }
+
+    const o = s.orders || {};
+    $('ordTotal').textContent = (o.total ?? 0).toLocaleString('en-US');
+    $('ordDelivered').textContent = (o.delivered ?? 0).toLocaleString('en-US');
+    $('emcDelivered').innerHTML = `${nf(o.delivered_emc || 0)} <small>EMC</small>`;
+
+    // Per-status breakdown (only statuses that actually occur).
+    const bs = o.by_status || {};
+    $('byStatus').innerHTML = Object.keys(bs).sort().map(k =>
+      `<div class="row"><span class="k">· ${k.replace(/_/g, ' ')}</span><span class="v">${bs[k].toLocaleString('en-US')}</span></div>`
+    ).join('');
+
+    const a = s.activity || {};
+    const win = w => w ? `${(w.created ?? 0).toLocaleString('en-US')} / ${nf(w.delivered_emc || 0)} <small>EMC</small>` : '—';
+    $('act24').innerHTML = win(a.last_24h);
+    $('act7').innerHTML = win(a.last_7d);
+
+    if (s.generated_at) $('updated').textContent = 'Updated ' + new Date(s.generated_at).toLocaleString();
+  }
+
+  async function load() {
+    try {
+      const r = await fetch('/web/stats');
+      if (r.ok) render(await r.json());
+    } catch (_) {}
+  }
+  load();
+  setInterval(load, 30000);
+  </script>
+</body>
+</html>

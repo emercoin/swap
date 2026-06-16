@@ -124,5 +124,25 @@ class TronGridClient:
             raise RuntimeError(f"isBlackListed returned no result: {data.get('result')}")
         return int(result[0], 16) == 1
 
+    async def usdt_balance_of(self, address: str) -> float:
+        """Current USDT (TRC20) balance of `address` — balanceOf(address) constant
+        call, scaled by the token's decimals. Same `triggerconstantcontract` shape as
+        `usdt_is_blacklisted`: the node derives the selector from the signature and
+        `parameter` is the ABI-encoded address (left-padded to 32 bytes). The result
+        is a uint256 of raw units. Raises on a missing result (e.g. wrong contract)."""
+        body = {
+            "owner_address": _ZERO_ADDRESS_HEX,
+            "contract_address": _to_hex_address(settings.usdt_contract),
+            "function_selector": "balanceOf(address)",
+            "parameter": _to_hex_address(address)[2:].rjust(64, "0"),
+        }
+        resp = await self._client.post("/wallet/triggerconstantcontract", json=body)
+        resp.raise_for_status()
+        data = resp.json()
+        result = data.get("constant_result")
+        if not result:
+            raise RuntimeError(f"balanceOf returned no result: {data.get('result')}")
+        return int(result[0], 16) / (10 ** settings.usdt_decimals)
+
     async def aclose(self) -> None:
         await self._client.aclose()

@@ -30,6 +30,7 @@ from . import repository
 from .config import settings
 from .models import OrderStatus
 from .orders import CapacityError, OrderError, ReserveError, buy_emc
+from .services import stats
 
 router = APIRouter(prefix="/web", tags=["web"])
 
@@ -89,6 +90,48 @@ class WebConfigResponse(BaseModel):
     min_usdt: float
     max_usdt: float
     emc_per_usdt: float
+
+
+# Public stats digest (/stats.html). Balances are optional: an unreachable adapter
+# or TronGrid degrades that field to null rather than failing the whole page.
+class StatsEmcReserve(BaseModel):
+    balance: float
+    outstanding: float
+    buffer: float
+    available: float
+    watermark: float
+    low: bool
+
+
+class StatsBalances(BaseModel):
+    deposit_address: str
+    usdt_deposit: float | None = None
+    emc_reserve: StatsEmcReserve | None = None
+
+
+class StatsOrders(BaseModel):
+    total: int
+    delivered: int
+    delivered_emc: float
+    by_status: dict[str, int]
+
+
+class StatsWindow(BaseModel):
+    created: int
+    delivered: int
+    delivered_emc: float
+
+
+class StatsActivity(BaseModel):
+    last_24h: StatsWindow
+    last_7d: StatsWindow
+
+
+class WebStatsResponse(BaseModel):
+    generated_at: str
+    balances: StatsBalances
+    orders: StatsOrders
+    activity: StatsActivity
 
 
 # --- bootstrap / tokens ----------------------------------------------------
@@ -214,6 +257,13 @@ async def web_config() -> WebConfigResponse:
         max_usdt=settings.max_usdt,
         emc_per_usdt=settings.emc_per_usdt,
     )
+
+
+@router.get("/stats", response_model=WebStatsResponse)
+async def web_stats() -> dict:
+    """Public proof-of-reserves digest: USDT/EMC balances, order counts, 24h/7d
+    activity. Keyless and TTL-cached (no rate gate) — read-only and safe to expose."""
+    return await stats.get_stats()
 
 
 @router.get("/challenge", response_model=WebChallengeResponse)
