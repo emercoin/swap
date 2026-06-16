@@ -90,6 +90,7 @@ class WebConfigResponse(BaseModel):
     min_usdt: float
     max_usdt: float
     emc_per_usdt: float
+    support_email: str = Field("", description="operator contact for manual cases")
 
 
 # Public stats digest (/stats.html). Balances are optional: an unreachable adapter
@@ -256,6 +257,7 @@ async def web_config() -> WebConfigResponse:
         min_usdt=settings.min_usdt,
         max_usdt=settings.max_usdt,
         emc_per_usdt=settings.emc_per_usdt,
+        support_email=settings.support_email,
     )
 
 

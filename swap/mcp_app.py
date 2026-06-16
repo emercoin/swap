@@ -131,11 +131,13 @@ async def get_swap_config() -> WebConfigResponse:
     """Return the current order limits and fixed rate for buying EMC with USDT:
     min/max USDT per order and emc_per_usdt (EMC you receive = amount_usdt ×
     emc_per_usdt). Call this first to choose a valid amount for buy_emc. Read-only —
-    it neither creates nor changes an order."""
+    it neither creates nor changes an order. `support_email` is the operator contact
+    for manual cases (e.g. an order on aml_hold or a late/mismatched payment)."""
     return WebConfigResponse(
         min_usdt=settings.min_usdt,
         max_usdt=settings.max_usdt,
         emc_per_usdt=settings.emc_per_usdt,
+        support_email=settings.support_email,
     )
 
 

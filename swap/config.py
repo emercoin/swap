@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     serve_static: bool = False             # serve swap/site/ from the app (local dev;
     #                                        in prod Caddy serves the static corpus)
 
+    # Operator contact surfaced to humans (page footer + problem-status prompts) and
+    # to agents (get_swap_config). The only feedback channel for manual cases —
+    # aml_hold / expired / a late or mismatched payment — so keep it monitored.
+    support_email: str = "swap@emercoin.com"
+
     # Public stats digest (/stats.html + GET /web/stats): proof-of-reserves style
     # transparency page. The endpoint is keyless and public, so a short TTL cache
     # shields the adapter + TronGrid from being hammered on every page hit.

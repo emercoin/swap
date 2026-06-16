@@ -60,6 +60,7 @@
 
       <div class="badge" id="badge"><span class="dot"></span><span id="badgeText">Waiting for payment…</span></div>
       <p class="statusmsg" id="statusMsg">Send the USDT above; this page updates automatically.</p>
+      <p class="statusmsg hidden" id="support"></p>
       <div class="payrow hidden" id="txrow">
         <label>EMC delivery txid</label>
         <div class="val"><span id="txid">—</span><button class="copy" data-copy="txid">Copy</button></div>
@@ -74,6 +75,7 @@
       <a href="/oferta.html">Offer &amp; terms</a> ·
       <a href="/stats.html">Stats</a> ·
       <a href="/docs">API</a> ·
+      <a href="mailto:swap@emercoin.com">Contact</a> ·
       <a href="https://ai.emercoin.com">ai.emercoin.com</a>
       <div style="margin-top:6px">swap.emercoin.com</div>
     </div>
@@ -82,7 +84,7 @@
   <script>
   const $ = id => document.getElementById(id);
   const STORE_KEY = 'swap_order';            // localStorage handle to the live order
-  let cfg = { min_usdt: 5, max_usdt: 10, emc_per_usdt: 10 };
+  let cfg = { min_usdt: 5, max_usdt: 10, emc_per_usdt: 10, support_email: 'swap@emercoin.com' };
   let poll = null;
   let countdownTimer = null;
   let selectedAmount = null;
@@ -191,12 +193,31 @@
     overpaid:         ['warn', 'Amount mismatch', 'The amount did not match. Contact the operator.'],
   };
   const DONE = new Set(['notified', 'expired', 'aml_hold', 'underpaid', 'overpaid']);
+  // States that need the operator: show a prefilled support mailto (the exact USDT
+  // amount is the order's unique tag, so it identifies the order on its own).
+  const SUPPORT = new Set(['aml_hold', 'expired', 'underpaid', 'overpaid', 'deliver_failed']);
+
+  function supportLink(s) {
+    const subject = `swap order — ${Number(s.amount_usdt).toFixed(6)} USDT`;
+    const body =
+      `Order token: ${currentToken || '—'}\n` +
+      `Exact amount: ${Number(s.amount_usdt).toFixed(6)} USDT\n` +
+      `EMC address: ${s.destination_emc_address || '—'}\n` +
+      `Status: ${s.status}\n\nDescribe the issue:\n`;
+    return `mailto:${cfg.support_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
 
   function render(s) {
     const [cls, text, msg] = STATES[s.status] || ['', s.status, ''];
     $('badge').className = 'badge ' + cls;
     $('badgeText').textContent = text;
     $('statusMsg').textContent = msg;
+    if (SUPPORT.has(s.status)) {
+      $('support').innerHTML = `Problem with this order? <a href="${supportLink(s)}">Email ${cfg.support_email}</a> — your order reference is filled in.`;
+      $('support').classList.remove('hidden');
+    } else {
+      $('support').classList.add('hidden');
+    }
     if (s.emc_txid) { $('txid').textContent = s.emc_txid; $('txrow').classList.remove('hidden'); }
     // Cancelling is only meaningful while still awaiting; once a payment shows up
     // (or the order ends) drop the button.
