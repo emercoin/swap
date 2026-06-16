@@ -77,6 +77,7 @@ class WebOrderResponse(BaseModel):
 
 
 class WebStatusResponse(BaseModel):
+    order_id: int = Field(..., description="human-quotable order number (DB id)")
     status: OrderStatus
     amount_usdt: float
     emc_amount: float
@@ -387,6 +388,7 @@ async def web_cancel_order(token: str) -> WebStatusResponse:
 
 def _status_response(row: aiosqlite.Row) -> WebStatusResponse:
     return WebStatusResponse(
+        order_id=row["id"],
         status=OrderStatus(row["status"]),
         amount_usdt=row["amount_usdt"],
         emc_amount=row["emc_amount"],

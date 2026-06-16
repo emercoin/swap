@@ -42,6 +42,7 @@
 
     <!-- step 2: pay exactly -->
     <div class="pay hidden" id="pay">
+      <div class="orderno" id="orderNo"></div>
       <div class="payrow">
         <label>Send EXACTLY this amount of USDT (TRC20)</label>
         <div class="val"><span class="big" id="payAmount">—</span>&nbsp;USDT
@@ -89,6 +90,8 @@
   let countdownTimer = null;
   let selectedAmount = null;
   let currentToken = null;
+  let currentOrderId = null;            // human-quotable order number (DB id)
+  const setOrderNo = () => { $('orderNo').textContent = currentOrderId ? `Order #${currentOrderId}` : ''; };
 
   // --- proof of work (anti-spam): solve the server's hashcash before ordering ---
   const _K = new Uint32Array([
@@ -198,9 +201,10 @@
   const SUPPORT = new Set(['aml_hold', 'expired', 'underpaid', 'overpaid', 'deliver_failed']);
 
   function supportLink(s) {
-    const subject = `swap order — ${Number(s.amount_usdt).toFixed(6)} USDT`;
+    const no = s.order_id || currentOrderId;
+    const subject = `swap order #${no ?? '?'}`;
     const body =
-      `Order token: ${currentToken || '—'}\n` +
+      `Order #: ${no ?? '—'}\n` +
       `Exact amount: ${Number(s.amount_usdt).toFixed(6)} USDT\n` +
       `EMC address: ${s.destination_emc_address || '—'}\n` +
       `Status: ${s.status}\n\nDescribe the issue:\n`;
@@ -208,6 +212,7 @@
   }
 
   function render(s) {
+    if (s.order_id) { currentOrderId = s.order_id; setOrderNo(); }
     const [cls, text, msg] = STATES[s.status] || ['', s.status, ''];
     $('badge').className = 'badge ' + cls;
     $('badgeText').textContent = text;
@@ -267,6 +272,8 @@
   // payloads carry amount_usdt / deposit_address / expires_at / status.
   function openOrder(token, info) {
     currentToken = token;
+    currentOrderId = info.order_id || null;
+    setOrderNo();
     localStorage.setItem(STORE_KEY, token);
     $('payAmount').textContent = info.amount_usdt.toFixed(6);
     $('payAddr').textContent = info.deposit_address;
@@ -334,6 +341,7 @@
     stopCountdown();
     localStorage.removeItem(STORE_KEY);
     currentToken = null;
+    currentOrderId = null; setOrderNo();
     $('pay').classList.add('hidden'); $('form').classList.remove('hidden');
     $('submit').disabled = false; $('txrow').classList.add('hidden');
   });
