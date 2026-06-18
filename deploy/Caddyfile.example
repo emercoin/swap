@@ -20,11 +20,27 @@
 		trusted_proxies cloudflare {
 			interval 12h
 		}
+		# Sane request limits (the app surface is tiny JSON-RPC / form posts): cap
+		# header size and apply read/idle timeouts so slow-loris / oversized headers
+		# don't tie up the origin.
+		max_header_bytes 16KB
+		timeouts {
+			read_header 10s
+			read_body   30s
+			idle        5m
+		}
 	}
 }
 
 swap.emercoin.com {
 	encode zstd gzip
+
+	# Cap request body size. buy_emc / order posts are well under 1KB; 64KB is far
+	# more than enough and stops payload abuse (e.g. a number with a million digits)
+	# from reaching the app — guard input at the edge, not inside the algorithm.
+	request_body {
+		max_size 64KB
+	}
 
 	# --- Origin lock: only Cloudflare may reach this host --------------------------
 	# This is what makes CF-Connecting-IP trustworthy. Enforce it at ONE of:
