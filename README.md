@@ -48,6 +48,18 @@ until `notified`. One-way, exact-amount, **no refunds**. The same primitive is a
 available as keyed **REST** (for services, with a signed callback) and a keyless
 **web** page at [swap.emercoin.com](https://swap.emercoin.com).
 
+> **This server is not self-contained — use the hosted endpoint above.** Running an
+> order needs deployed infrastructure: an Emercoin node + [adapter](#layout) (the EMC
+> payout rail, `/wallet/send`), a TronGrid USDT watcher, a funded EMC reserve, and a
+> configured TRON deposit address. An image built from this repo *in isolation* — e.g.
+> by a registry/sandbox like **Glama** — is therefore an **introspection target only**:
+> `tools/list` (for tool-definition quality scoring) works with zero config, but
+> **execution tools like `buy_emc` cannot complete** without that backing infra (no
+> deposit address → "deposit address not configured"; no adapter → reserve pre-flight
+> fails). That's correct isolation, not a defect. To actually buy EMC, call the hosted
+> `https://swap.emercoin.com/mcp`. The repo never ships the adapter key or any wallet
+> secret — those live only on the deployed host.
+
 ## Locked decisions
 
 | Topic | Decision |

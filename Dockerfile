@@ -6,6 +6,12 @@
 # EMC node / DB are all irrelevant here. We launch the dependency-free stdio entry
 # (`python -m swap.mcp_app`), NOT the full FastAPI HTTP stack + watcher.
 #
+# This is an INTROSPECTION TARGET ONLY, not a runnable exchanger: execution tools
+# (buy_emc) can't complete in isolation — they need deployed infra (EMC node +
+# adapter payout rail, TronGrid watcher, funded reserve, configured deposit address)
+# that lives only on the host. We deliberately do NOT bake real service URLs or the
+# adapter key into this public image. Real flow runs at https://swap.emercoin.com/mcp.
+#
 # Production deploy on the VPS uses deploy/Dockerfile (uvicorn HTTP on :8002) — that
 # one is unchanged; this root file exists purely so Glama gets a clean introspectable
 # server. swap/ is copied BEFORE the install so the package is present at build.
