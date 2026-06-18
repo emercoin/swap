@@ -177,7 +177,15 @@ def _order_id_from_token(token: str) -> int:
 # --- rate limit ------------------------------------------------------------
 
 def _client_ip(request: Request) -> str:
-    """Client IP, trusting the proxy's X-Forwarded-For (Caddy/CF front)."""
+    """Real client IP behind the edge. Prefer Cloudflare's authoritative
+    `CF-Connecting-IP` (the origin must accept traffic ONLY from CF, else this header
+    is client-spoofable), then the first `X-Forwarded-For` entry (Caddy), then the
+    socket peer. Without this, requests behind CF collapse onto the CF edge IP and the
+    per-IP caps act almost globally. NOTE: agents arriving via the Glama MCP proxy all
+    share Glama's egress IP regardless — IP can't separate them (see the MCP channel)."""
+    cf = request.headers.get("cf-connecting-ip")
+    if cf:
+        return cf.strip()
     xff = request.headers.get("x-forwarded-for")
     if xff:
         return xff.split(",")[0].strip()
@@ -195,10 +203,13 @@ def _rate_check(request: Request) -> None:
     window.append(now)
 
 
-def _concurrency_check(request: Request) -> None:
-    """Cap how many orders one client can hold open at once. Counts this IP's
-    creations within the order-TTL window (orders can't outlive it), so no per-order
-    client tracking is needed; it over-counts already-settled ones, i.e. errs strict."""
+def _concurrency_check(request: Request) -> str:
+    """Cap how many orders one client can hold open at once, and return the client IP
+    so the caller records the slot via `_concurrency_record` ONLY after the order is
+    actually created — a failed creation (bad address, reserve, AML, capacity) must not
+    burn a slot. Counts this IP's creations within the order-TTL window (orders can't
+    outlive it), so no per-order client tracking is needed; it over-counts
+    already-settled ones, i.e. errs strict."""
     ip = _client_ip(request)
     now = time.monotonic()
     window = settings.order_ttl_minutes * 60
@@ -207,7 +218,15 @@ def _concurrency_check(request: Request) -> None:
         recent.popleft()
     if len(recent) >= settings.web_max_concurrent_per_ip:
         raise HTTPException(status_code=429, detail="too many open orders; wait for them to expire")
-    recent.append(now)
+    return ip
+
+
+def _concurrency_record(ip: str) -> None:
+    """Record one open-order slot for `ip`. Call only after a successful creation, so
+    failed attempts don't count. Idempotent retries (same key → same order) may slightly
+    over-count, but that's bounded by the rate limit and far better than counting every
+    failed attempt as the old inline append did."""
+    _recent[ip].append(time.monotonic())
 
 
 # --- proof of work ---------------------------------------------------------
@@ -314,7 +333,7 @@ async def create_public_order(
     if _web_service is None:
         raise HTTPException(status_code=503, detail="web channel not ready")
     _rate_check(request)
-    _concurrency_check(request)
+    ip = _concurrency_check(request)
     if enforce_pow:
         _verify_pow(pow_challenge, pow_solution)
     dest = destination_emc_address.strip()
@@ -333,6 +352,7 @@ async def create_public_order(
         raise HTTPException(status_code=400, detail=str(exc))
     except (ReserveError, CapacityError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    _concurrency_record(ip)              # only a real, created order burns a per-IP slot
     return WebOrderResponse(
         token=_token_for(resp.order_id),
         order_id=resp.order_id,

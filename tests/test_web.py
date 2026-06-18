@@ -32,8 +32,12 @@ def _solve(challenge: str, bits: int) -> str:
     return str(sol)
 
 
-def _req(ip="1.2.3.4", xff=None):
-    headers = {"x-forwarded-for": xff} if xff else {}
+def _req(ip="1.2.3.4", xff=None, cf=None):
+    headers = {}
+    if xff:
+        headers["x-forwarded-for"] = xff
+    if cf:
+        headers["cf-connecting-ip"] = cf
     return SimpleNamespace(headers=headers, client=SimpleNamespace(host=ip))
 
 
@@ -199,3 +203,29 @@ async def test_pow_rejects_wrong_solution(fresh_db, web_env, monkeypatch):
 async def test_client_ip_prefers_forwarded_for(fresh_db, web_env):
     assert web._client_ip(_req(ip="10.0.0.1", xff="203.0.113.7, 10.0.0.1")) == "203.0.113.7"
     assert web._client_ip(_req(ip="10.0.0.1")) == "10.0.0.1"
+
+
+async def test_client_ip_prefers_cf_connecting_ip(fresh_db, web_env):
+    # Behind Cloudflare, CF-Connecting-IP is authoritative and wins over XFF / peer.
+    assert web._client_ip(
+        _req(ip="10.0.0.1", xff="203.0.113.7", cf="198.51.100.9")
+    ) == "198.51.100.9"
+
+
+async def test_failed_order_does_not_burn_concurrency_slot(fresh_db, web_env, monkeypatch):
+    # A creation that fails validation must not consume a per-IP slot: many bad
+    # attempts from one IP should never trip the concurrency cap on their own.
+    # (Raise the rate limit out of the way; this asserts only the concurrency slot.)
+    monkeypatch.setattr(settings, "web_rate_per_min", 1000)
+    await web.ensure_web_service()
+    web._recent.clear()
+    web._hits.clear()
+    bad = web.WebOrderRequest(amount_usdt=5.0, destination_emc_address="not-an-emc-address")
+    for _ in range(settings.web_max_concurrent_per_ip + 3):
+        with pytest.raises(HTTPException) as e:
+            await web.create_public_order(
+                bad.amount_usdt, bad.destination_emc_address, _req(ip="9.9.9.9"),
+                enforce_pow=False,
+            )
+        assert e.value.status_code == 400      # invalid address, NOT 429 "too many open orders"
+    assert len(web._recent["9.9.9.9"]) == 0    # zero slots burned by failed attempts
