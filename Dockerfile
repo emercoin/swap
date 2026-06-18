@@ -8,15 +8,17 @@
 #
 # Production deploy on the VPS uses deploy/Dockerfile (uvicorn HTTP on :8002) — that
 # one is unchanged; this root file exists purely so Glama gets a clean introspectable
-# server. swap/ is copied BEFORE `pip install .` so the package is present at build.
-FROM python:3.12-slim
+# server. swap/ is copied BEFORE the install so the package is present at build.
+#
+# Base image bundles uv + Python 3.12 (uv installs deps far faster than pip).
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+ENV PYTHONUNBUFFERED=1 UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /app
 
 COPY pyproject.toml ./
 COPY swap ./swap
-RUN pip install --upgrade pip && pip install .
+RUN uv pip install --system .
 
 # stdio transport: Glama spawns the container and speaks MCP over stdin/stdout.
 CMD ["python", "-m", "swap.mcp_app"]
