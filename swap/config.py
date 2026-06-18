@@ -5,6 +5,7 @@ must come from the environment — never hard-code or commit them.
 """
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,6 +44,11 @@ class Settings(BaseSettings):
     emc_per_usdt: float = 10.0
     min_usdt: float = 5.0     # below this the TRON gas eats the trade; see docs
     max_usdt: float = 10.0
+    # Fixed denominations the buyer may choose (USDT). The web page renders these as
+    # buttons; REST/MCP validate the input against this exact set (not a free range)
+    # — the single source of allowed amounts across all surfaces. Keep within
+    # [min_usdt, max_usdt]. Override e.g. SWAP_ALLOWED_AMOUNTS='[5,10]'.
+    allowed_amounts: list[float] = [5.0, 10.0]
 
     # settlement
     confirmations_required: int = 19
@@ -123,3 +129,19 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def validate_amount_usdt(amount: float) -> float:
+    """Boundary guard for the buy amount, shared by REST/MCP/web (wired as a pydantic
+    `AfterValidator` on each input) and re-checked in `orders.buy_emc`. Rejects
+    non-finite values (NaN/inf) and anything that isn't one of the configured fixed
+    denominations, raising `ValueError` with a human message — surfaced to the caller
+    as the error text. Returns the value unchanged so it can sit in an `Annotated`
+    type. Keeps malformed input out of the order algorithm instead of silently
+    coercing it (e.g. an over-precise figure rounded behind the caller's back)."""
+    if not math.isfinite(amount):
+        raise ValueError("amount_usdt must be a finite number")
+    if amount not in settings.allowed_amounts:
+        allowed = " or ".join(f"{a:g}" for a in settings.allowed_amounts)
+        raise ValueError(f"amount_usdt must be one of: {allowed} USDT")
+    return amount

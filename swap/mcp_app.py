@@ -37,6 +37,7 @@ from starlette.routing import Route
 
 from . import db, web
 from .config import settings
+from .models import AmountUsdt
 from .web import WebConfigResponse, WebOrderResponse, WebStatusResponse
 
 # DNS-rebinding protection guards browser-driven localhost servers; here the edge
@@ -128,14 +129,17 @@ class _NoRequest:
     annotations={"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
 )
 async def get_swap_config() -> WebConfigResponse:
-    """Return the current order limits and fixed rate for buying EMC with USDT:
-    min/max USDT per order and emc_per_usdt (EMC you receive = amount_usdt ×
-    emc_per_usdt). Call this first to choose a valid amount for buy_emc. Read-only —
-    it neither creates nor changes an order. `support_email` is the operator contact
-    for manual cases (e.g. an order on aml_hold or a late/mismatched payment)."""
+    """Return the current order denominations and fixed rate for buying EMC with USDT.
+    `allowed_amounts` is the exact set of USDT values buy_emc accepts (fixed
+    denominations, not a free range) — pick one of these; `min_usdt`/`max_usdt` are its
+    bounds and emc_per_usdt is the rate (EMC you receive = amount_usdt × emc_per_usdt).
+    Call this first to choose a valid amount for buy_emc. Read-only — it neither creates
+    nor changes an order. `support_email` is the operator contact for manual cases
+    (e.g. an order on aml_hold or a late/mismatched payment)."""
     return WebConfigResponse(
         min_usdt=settings.min_usdt,
         max_usdt=settings.max_usdt,
+        allowed_amounts=settings.allowed_amounts,
         emc_per_usdt=settings.emc_per_usdt,
         support_email=settings.support_email,
     )
@@ -152,9 +156,7 @@ async def get_swap_config() -> WebConfigResponse:
 )
 async def buy_emc(
     ctx: Context,
-    amount_usdt: Annotated[
-        float, Field(gt=0, description="USDT to pay; must be within min/max from get_swap_config")
-    ],
+    amount_usdt: AmountUsdt,
     destination_emc_address: Annotated[
         str, Field(description="your EMC address to receive EMC (legacy 'E…' or bech32 'em1…')")
     ],

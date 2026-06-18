@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from . import repository
 from .config import settings
-from .models import OrderStatus
+from .models import AmountUsdt, OrderStatus
 from .orders import CapacityError, OrderError, ReserveError, buy_emc
 from .services import stats
 
@@ -54,7 +54,7 @@ _used_pow: dict[str, float] = {}
 # --- schemas ---------------------------------------------------------------
 
 class WebOrderRequest(BaseModel):
-    amount_usdt: float = Field(..., gt=0, description="USDT to pay (within limits)")
+    amount_usdt: AmountUsdt
     destination_emc_address: str = Field(..., description="your EMC address")
     pow_challenge: str = Field("", description="challenge string from GET /web/challenge")
     pow_solution: str = Field("", description="solved nonce for that challenge")
@@ -90,6 +90,9 @@ class WebStatusResponse(BaseModel):
 class WebConfigResponse(BaseModel):
     min_usdt: float
     max_usdt: float
+    allowed_amounts: list[float] = Field(
+        default_factory=list, description="the fixed USDT denominations a buyer may pick"
+    )
     emc_per_usdt: float
     support_email: str = Field("", description="operator contact for manual cases")
 
@@ -276,6 +279,7 @@ async def web_config() -> WebConfigResponse:
     return WebConfigResponse(
         min_usdt=settings.min_usdt,
         max_usdt=settings.max_usdt,
+        allowed_amounts=settings.allowed_amounts,
         emc_per_usdt=settings.emc_per_usdt,
         support_email=settings.support_email,
     )

@@ -15,7 +15,7 @@ import httpx
 
 from . import repository
 from .clients.adapter import AdapterClient, AdapterError
-from .config import settings
+from .config import settings, validate_amount_usdt
 from .models import BuyEmcResponse, OrderStatus
 
 log = logging.getLogger("swap.orders")
@@ -47,10 +47,13 @@ async def buy_emc(
     adapter: AdapterClient | None = None,
 ) -> BuyEmcResponse:
     """Create (or return the existing, idempotent) order with a unique pay amount."""
-    if amount_usdt < settings.min_usdt:
-        raise OrderError(f"amount below minimum {settings.min_usdt} USDT")
-    if amount_usdt > settings.max_usdt:
-        raise OrderError(f"amount above cap {settings.max_usdt} USDT")
+    # Boundary guard (finite + one of the fixed denominations). The input surfaces
+    # validate too, but re-check here so a direct/internal call can't smuggle a bad
+    # amount into the tag-allocation algorithm below.
+    try:
+        validate_amount_usdt(amount_usdt)
+    except ValueError as exc:
+        raise OrderError(str(exc))
     if not settings.deposit_address:
         raise OrderError("deposit address not configured")
 

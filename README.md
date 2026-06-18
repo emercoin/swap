@@ -65,7 +65,7 @@ available as keyed **REST** (for services, with a signed callback) and a keyless
 | Topic | Decision |
 |-------|----------|
 | Rate | static **1 USDT = 10 EMC** |
-| Cap / floor | **5–10 USDT** (floor 5: below it TRON gas dominates) |
+| Amounts | **fixed denominations: 5 or 10 USDT** (not a free range; floor 5: below it TRON gas dominates). REST/MCP/web validate the input against this exact set |
 | USDT rail | **TRC20 (TRON)** |
 | Payment match | **one shared deposit address + unique per-order amount tag** |
 | EMC delivery | via **emercoin adapter** `POST /wallet/send` (`X-Internal-Key`) |

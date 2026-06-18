@@ -6,8 +6,21 @@ and no fulfill_failed (service-level fulfillment is not swap's concern).
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from .config import validate_amount_usdt
+
+# USDT amount accepted on order creation: a positive float that must be one of the
+# fixed denominations (validated against settings.allowed_amounts). Shared by the
+# REST + web request models and the MCP tool param so all three reject the same way.
+AmountUsdt = Annotated[
+    float,
+    Field(gt=0, description="USDT to pay; must be one of the allowed denominations "
+          "from get_swap_config (currently 5 or 10)"),
+    AfterValidator(validate_amount_usdt),
+]
 
 
 class OrderStatus(StrEnum):
@@ -26,7 +39,7 @@ class OrderStatus(StrEnum):
 # --- API contract (REST + MCP share these) ---------------------------------
 
 class BuyEmcRequest(BaseModel):
-    amount_usdt: float = Field(..., gt=0, description="USDT to collect (≤ cap)")
+    amount_usdt: AmountUsdt
     destination_emc_address: str = Field(..., description="where EMC is delivered")
     callback_url: str = Field(..., description="signed POST lands here when paid")
     ref: str = Field(..., description="caller's invoice id — idempotency key")

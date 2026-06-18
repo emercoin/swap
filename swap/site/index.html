@@ -85,7 +85,7 @@
   <script>
   const $ = id => document.getElementById(id);
   const STORE_KEY = 'swap_order';            // localStorage handle to the live order
-  let cfg = { min_usdt: 5, max_usdt: 10, emc_per_usdt: 10, support_email: 'swap.support@emercoin.com' };
+  let cfg = { min_usdt: 5, max_usdt: 10, allowed_amounts: [5, 10], emc_per_usdt: 10, support_email: 'swap.support@emercoin.com' };
   let poll = null;
   let countdownTimer = null;
   let selectedAmount = null;
@@ -157,10 +157,13 @@
     $('emcOut').textContent = selectedAmount ? (selectedAmount * cfg.emc_per_usdt).toFixed(2) : '—';
   }
 
-  // Fixed denominations (the distinct config limits) instead of a free amount —
-  // simpler for the buyer, fewer amount-tag slots burned.
+  // Fixed denominations (server-authoritative allowed_amounts; falls back to the
+  // distinct config limits) instead of a free amount — simpler for the buyer, fewer
+  // amount-tag slots burned. The server validates against the same set.
   function renderDenoms() {
-    const denoms = [...new Set([cfg.min_usdt, cfg.max_usdt])].sort((a, b) => a - b);
+    const src = (cfg.allowed_amounts && cfg.allowed_amounts.length)
+      ? cfg.allowed_amounts : [cfg.min_usdt, cfg.max_usdt];
+    const denoms = [...new Set(src)].sort((a, b) => a - b);
     $('denoms').innerHTML = '';
     denoms.forEach(v => {
       const b = document.createElement('button');

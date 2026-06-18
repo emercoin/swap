@@ -98,6 +98,22 @@ async def test_buy_emc_enforces_minimum(fresh_db, deposit_addr):
                              destination_emc_address="E", callback_url="c", ref="dust")
 
 
+async def test_buy_emc_rejects_non_denomination(fresh_db, deposit_addr):
+    # In-range but not a fixed denomination (5 or 10): rejected at the boundary with a
+    # clear message, never silently rounded into the algorithm.
+    sid = await _service()
+    with pytest.raises(orders.OrderError, match="one of: 5 or 10"):
+        await orders.buy_emc(service_id=sid, amount_usdt=7.5,
+                             destination_emc_address="E", callback_url="c", ref="mid")
+
+
+async def test_buy_emc_rejects_non_finite(fresh_db, deposit_addr):
+    sid = await _service()
+    with pytest.raises(orders.OrderError, match="finite"):
+        await orders.buy_emc(service_id=sid, amount_usdt=float("nan"),
+                             destination_emc_address="E", callback_url="c", ref="nan")
+
+
 async def test_buy_emc_requires_deposit_address(fresh_db, monkeypatch):
     monkeypatch.setattr(settings, "deposit_address", "")
     sid = await _service()
