@@ -18,7 +18,10 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "aiosqlite>=0.20",
-    "mcp>=1.12",             # FastMCP Streamable HTTP + transport_security (the /mcp surface)
+    # <2: mcp 2.x renames FastMCP to MCPServer and swap/mcp_app.py targets the 1.x
+    # API. Unpinned, the next image rebuild installs 2.x and the container will not
+    # start — which is exactly how this bound came to be added.
+    "mcp>=1.12,<2",          # FastMCP Streamable HTTP + transport_security (the /mcp surface)
     "bip-utils>=2.9",        # TRON HD derivation (BIP44, coin 195)
 ]
 
