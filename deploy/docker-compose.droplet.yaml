@@ -19,6 +19,15 @@
 # wallet via emer-adapter, so keep the reserve funded.
 name: swap
 
+# Container stdout is unbounded under the default json-file driver. The deposit
+# poller alone writes ~12k lines/day, so cap it here rather than daemon-wide:
+# version-controlled, applied on the next recreate, no docker restart needed.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 networks:
   emercoin_default:
     external: true          # created by the emercoin_docker stack
@@ -40,5 +49,6 @@ services:
     networks:
       - emercoin_default
     restart: unless-stopped
+    logging: *logging
     # No host port: Caddy reaches it over the docker network as `swap:8002`.
     # Rolled by CI over SSH (deploy/deploy-service.sh), not Watchtower.

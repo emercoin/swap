@@ -30,6 +30,10 @@ from .services import watcher
 SITE_DIR = Path(__file__).parent / "site"
 
 logging.basicConfig(level=logging.INFO)
+# httpx logs every request it makes at INFO. The TRC20 deposit poller runs on a
+# short interval, so that one library line was 91% of this container's log volume
+# (178 MB of 196 MB over three months). The app's own loggers carry the signal.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("swap")
 
 RUN_WATCHER = True  # set False in tests / API-only deployments
